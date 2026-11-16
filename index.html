@@ -10,9 +10,9 @@
   <title>WildScope · Habitat, Biodiversity &amp; Hunting · SAIIL</title>
   <!-- MapLibre GL JS 5.24.0 (pinned). app.js retries from jsDelivr if unpkg is unreachable. -->
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261117a" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261117c" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261117a"></script>
+  <script type="module" src="./assets/app.js?v=20261117c"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -80,12 +80,12 @@
       <p class="mode-lead" id="mode-lead">Where can a species live? A 0–100 habitat score for every 200 m square.</p>
 
       <section class="control-group score-box" id="score-box" aria-labelledby="score-title">
-        <div class="control-label"><label id="score-title">Habitat score</label><span class="tag tag-real">REAL DATA · v1</span></div>
+        <div class="control-label"><label id="score-title">Habitat score</label><span class="tag tag-real" id="score-status">—</span></div>
         <div id="preset-list" class="segmented" role="group" aria-label="Species"></div>
-        <div class="score-legend"><div class="legend-bar" id="score-legend-bar"></div><div class="legend-labels"><span>0 · low</span><span id="score-legend-label">score</span><span>100 · high</span></div></div>
-        <div class="control-label small ind-head"><label>Indicators <small>tick to include · slide to weight</small></label><button type="button" class="link-btn" id="preset-reset">Reset</button></div>
+        <div class="score-legend"><div class="legend-bar" id="score-legend-bar"></div><div class="legend-labels"><span>lowest</span><span id="score-legend-label">colour = rank in the region</span><span>highest</span></div></div>
+        <div class="control-label small ind-head"><label>Indicators <small>tick to include · slide to weight</small></label><button type="button" class="link-btn" id="preset-reset" hidden>Reset to recommended</button></div>
         <div id="indicator-list" class="indicator-list" role="group" aria-label="Indicators"></div>
-        <div class="control-group"><div class="control-label"><label for="score-threshold">Show squares scoring at least</label><strong id="threshold-label">0</strong></div><input id="score-threshold" type="range" min="0" max="100" value="0" step="5"><div class="range-label"><span>0 · everything</span><span>100 · best only</span></div></div>
+        <div class="control-group"><div class="control-label"><label for="score-threshold">Show squares scoring at least</label><strong id="threshold-label">0</strong></div><div class="best-row" role="group" aria-label="Quick filter"><button type="button" class="seg active" data-best="0">All</button><button type="button" class="seg" data-best="30">Best 30%</button><button type="button" class="seg" data-best="10">Best 10%</button></div><input id="score-threshold" type="range" min="0" max="100" value="0" step="5"><div class="range-label"><span>0 · everything</span><span>100 · best only</span></div></div>
         <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score on map</label><label class="op-row" for="score-opacity">Opacity <input id="score-opacity" type="range" min="10" max="100" step="5" value="75"></label></div>
         <div class="score-actions"><button type="button" class="action secondary" id="method-btn">ⓘ How the score works</button><button type="button" class="action secondary" id="export-btn">↓ GeoTIFF for QGIS</button></div>
         <p class="control-note" id="score-note">Loading scores…</p>
@@ -150,21 +150,21 @@
   <p class="help-lead">WildScope turns free satellite and map data into simple scores for every 200 m square: <b>where wildlife can live</b>, <b>where nature is richest</b>, and <b>when to go</b> if you hunt. The pilot region is Freiburg and the western Black Forest (Germany); the method works anywhere.</p>
   <ol class="help-steps">
     <li><b>Pick a mode</b> at the top of the left panel: <b>Habitat</b> (one species), <b>Biodiversity</b> (variety and naturalness of the landscape) or <b>Hunting</b> (habitat plus live wind, light and your own hunting ground).</li>
-    <li><b>Read the colours.</b> Blue squares score low, red squares score high. Scores are relative within the pilot region.</li>
+    <li><b>Read the colours.</b> Colours show each square's rank in the pilot region: blue = among the lowest, red = among the highest. Click a square for its actual score (0–100) and a plain class: poor, average, good or very good.</li>
     <li><b>Build your own score.</b> Each indicator has a tick box and a weight slider. Untick one, or change its weight, and the map recalculates instantly.</li>
     <li><b>Click any square</b> to see its score and why: every indicator's value, its weight and the points it adds, plus the real measurements behind it (tree cover, NDVI, distance to the nearest road, and so on).</li>
-    <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real wildlife sightings (GBIF).</li>
+    <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real roe deer sightings (GBIF), compared fairly with where people report other mammals. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
     <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
     <li><b>Search a place</b> (top left of the map) or press <b>✈ Fly to pilot region</b>. <b>Labels</b> adds place names and roads.</li>
     <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>
   <h3>The three modes</h3>
   <dl class="help-defs">
-    <dt>Habitat</dt><dd>Is this a good place for roe deer or wild boar? Cover, forest edges, food, quiet, water and moisture, from Sentinel-2, ESA WorldCover and OpenStreetMap.</dd>
-    <dt>Biodiversity</dt><dd>How varied and natural is the landscape? Habitat variety, natural cover, spectral diversity of the vegetation, quiet and water. A proxy for biodiversity potential, not a species count.</dd>
+    <dt>Habitat</dt><dd>Is this a good place for roe deer or wild boar? Woodland, open feeding land, food, field–forest mosaic, distance from towns and roads, water and moisture, from Sentinel-2, ESA WorldCover and OpenStreetMap. The roe deer weights are fitted to real sightings and tested on areas the fit never saw.</dd>
+    <dt>Biodiversity</dt><dd>How varied and natural is the landscape? Habitat variety, natural cover, spectral diversity of the vegetation, distance from towns and roads, and water. A proxy for biodiversity potential, not a species count.</dd>
     <dt>Hunting</dt><dd>The habitat score plus live wind and scent direction, sunrise, sunset, moon, and your private hunting-ground boundary.</dd>
   </dl>
-  <p class="control-note">Scores are relative indices, not probabilities of seeing an animal. Satellites cannot see the animals themselves. Good habitat is not permission to hunt: always follow local law.</p>
+  <p class="control-note">Scores are relative indices, not probabilities of seeing an animal. Satellites cannot see the animals themselves. Good habitat is not permission to hunt: always follow local law. No 3D globe? Your browser has WebGL (graphics acceleration) switched off; WildScope then opens a simple 2D map with the same scores.</p>
 </dialog>
 
 <!-- ===== Method (filled from data/scores/grid.json) ===== -->

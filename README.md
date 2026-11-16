@@ -4,7 +4,7 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **Three modes:** *Habitat* (roe deer, wild boar), *Biodiversity* (habitat variety, natural cover, spectral diversity) and *Hunting* (habitat score + live wind, light, moon and a private hunting-ground boundary).
 
-**v1 scores (real data, Nov 2026).** Ten indicators per 200 m square from Copernicus Sentinel-2 (24 Jul 2026), ESA WorldCover 2021 and OpenStreetMap, combined live in the browser with weights the user can change. The roe deer score is checked against 186 GBIF sightings (AUC shown in the app). How it is made: **[scripts/README_scores.md](scripts/README_scores.md)**. Outputs: `data/scores/` (website) and `data/scores/qgis/` (GeoTIFFs).
+**v1.1 scores (real data, Nov 2026).** Fifteen indicators per 200 m square from Copernicus Sentinel-2 (24 Jul 2026), ESA WorldCover 2021 and OpenStreetMap, combined live in the browser with weights the user can change. The roe deer score is fitted to 186 GBIF sightings with observer-bias correction and tested with spatial cross-validation (AUC 0.74 on unseen 9 km blocks). If the browser has no WebGL, the site opens a simple 2D map (Leaflet) with the same scores. How it is made: **[scripts/README_scores.md](scripts/README_scores.md)**. Outputs: `data/scores/` (website) and `data/scores/qgis/` (GeoTIFFs).
 
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 

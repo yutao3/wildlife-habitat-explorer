@@ -5,7 +5,7 @@
        score = Σ (weight × indicator) / Σ weight            (ticked indicators only)
    and draws the result as an image overlay (blue = low, red = high). */
 
-import { el } from './ui.js?v=20261117a';
+import { el } from './ui.js?v=20261117c';
 
 export const SCORE_RAMP = [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']];
 const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -62,13 +62,22 @@ export class ScoreGrid {
   }
 
   /** Paint the current scores (cells below minScore become transparent) and return a PNG data URL. */
+  /** Colours show the square's rank in the region (0 = lowest, 100 = highest), so every score uses the full
+      blue-to-red range; the number shown on click stays the real weighted score. */
+  rankOf(v) {
+    const s = this.sorted; if (!s || Number.isNaN(v)) return NaN;
+    let lo = 0, hi = s.length; while (lo < hi) { const m = (lo + hi) >> 1; if (s[m] < v) lo = m + 1; else hi = m; }
+    let eq = lo; while (eq < s.length && s[eq] === v) eq++;
+    return 100 * (lo + (eq - lo) / 2) / s.length;
+  }
   paint(minScore = 0) {
     const { cols, rows } = this.meta; const ctx = this.canvas.getContext('2d');
     const img = ctx.createImageData(cols, rows); const d = img.data; let shown = 0;
+    this.sorted = Float32Array.from(Array.from(this.scores).filter(x => !Number.isNaN(x))).sort();
     for (let i = 0; i < this.n; i++) {
       const v = this.scores[i]; const j = i * 4;
       if (Number.isNaN(v) || v < minScore) { d[j + 3] = 0; continue; }
-      const [r, g, b] = scoreRGB(v); d[j] = r; d[j + 1] = g; d[j + 2] = b; d[j + 3] = 255; shown++;
+      const [r, g, b] = scoreRGB(this.rankOf(v)); d[j] = r; d[j + 1] = g; d[j + 2] = b; d[j + 3] = 255; shown++;
     }
     ctx.putImageData(img, 0, 0);
     this.shown = shown;

@@ -1,82 +1,110 @@
 #!/usr/bin/env python3
-"""WildScope v1, step 3 of 3: package the indicator grid for the website and for QGIS.
+"""WildScope v1.1, step 3 of 3: fit, test and package the scores for the website and for QGIS.
 
 Input : a JSON export from the browser steps (scripts/browser/*.js), see scripts/README_scores.md
-Output: data/scores/grid.json   metadata, indicator definitions, presets (weights), validation
-        data/scores/grid.bin    one byte per 200 m cell per layer (255 = no data), row 0 = north
-        data/scores/qgis/*.tif  preset scores + every indicator as float32 GeoTIFF (EPSG:4326)
+Output: data/scores/grid.json     metadata, indicators, the three scores (weights), evidence
+        data/scores/grid.bin      one byte per 200 m square per layer (255 = no data), row 0 = north
+        data/scores/qgis/*.tif    each score + every indicator as float32 GeoTIFF (EPSG:4326)
         data/scores/preview/*.png quick-look images
+
+How the roe deer weights are found (v1.1):
+  presence   = squares with a GBIF roe deer record (citizen science, location ≤ 250 m)
+  background = squares with a GBIF record of any OTHER mammal ("target group"): the same people,
+               paths and villages, so observer bias largely cancels out (Phillips et al. 2009)
+  weights    = whole numbers in steps of 5, no indicator above 30% of the total, and three
+               ecological indicators always kept (woodland nearby, open/woodland mosaic, food),
+               chosen by coordinate ascent to maximise the AUC of presence vs background
+  test       = 5-fold spatial cross-validation on 9 km blocks: weights are fitted without a
+               block's sightings and tested on them, so nearby sightings cannot leak into the test
 
 Standard library + numpy + Pillow.  Usage: python3 scripts/build_scores.py export.json
 """
-import base64, gzip, json, math, struct, sys
+import base64, gzip, json, struct, sys
 from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'data' / 'scores'
 
+G_SHELTER, G_FOOD, G_STRUCT, G_DIST, G_WATER, G_BIO = 'Shelter', 'Food', 'Landscape structure', 'Disturbance', 'Water', 'Biodiversity'
 INDICATORS = [
-    dict(id='cover', label='Tree cover (shelter)',
-         how='Share of the 200 m square covered by trees (ESA WorldCover, 10 m).',
-         why='Deer and boar rest and hide in woodland; on hot days woodland is the best shade (Biological Conservation 2025, roe deer).',
+    dict(id='woodland', group=G_SHELTER, label='Woodland nearby',
+         how='Share of trees within 600 m (the square and its 8 neighbours).',
+         why='Deer and boar need cover within reach to rest, hide and escape; on hot days woodland is the best shade (Biological Conservation 2025).',
          source='ESA WorldCover 2021'),
-    dict(id='edge', label='Forest–open edge',
-         how='Length of boundary between trees and grass, crops or shrubs, within 600 m (3 × 3 squares), scaled to the region.',
-         why='Edges put food (open land) next to cover (forest): the classic roe deer habitat. Rated "high" in the feasibility study.',
+    dict(id='cover', group=G_SHELTER, label='Tree cover in the square',
+         how='Share of the 200 m square covered by trees.',
+         why='Dense cover inside the square itself: important for wild boar resting places.',
          source='ESA WorldCover 2021'),
-    dict(id='forage', label='Food on open land',
-         how='Mean Sentinel-2 NDVI of grass, crop and shrub pixels within 600 m on 24 Jul 2026 (0.25 → 0, 0.75 → 100).',
-         why='Green, growing vegetation near cover is food. Using only open land avoids the "dark forest looks greenest" trap.',
+    dict(id='open', group=G_FOOD, label='Open feeding land',
+         how='Share of grassland, cropland, shrub and wetland within 600 m (60% or more → 100).',
+         why='Roe deer feed on meadows and fields; most sightings are on open land next to woodland.',
+         source='ESA WorldCover 2021'),
+    dict(id='forage', group=G_FOOD, label='Green food',
+         how='Mean Sentinel-2 NDVI of the open land within 600 m on 24 Jul 2026 (0.25 → 0, 0.75 → 100).',
+         why='Green, growing plants are food. Only open land is used, to avoid the "dark forest looks greenest" trap.',
          source='Copernicus Sentinel-2 L2A, 24 Jul 2026'),
-    dict(id='quiet', label='Quiet (far from roads)',
-         how='Mean distance to the nearest road or built-up pixel (0 m → 0, 1 km or more → 100).',
-         why='Hunting and recreation disturb deer more than wolves do (Ecology & Evolution 2026); tracked animals keep away from roads.',
-         source='OpenStreetMap roads + ESA WorldCover built-up'),
-    dict(id='water', label='Water nearby',
-         how='Distance from the square to the nearest river, stream, lake or wetland (water inside the square → 100, 400 m or more → 0).',
-         why='Drinking water; wild boar also need wet ground to wallow in.',
-         source='OpenStreetMap waterways + ESA WorldCover water'),
-    dict(id='moisture', label='Vegetation moisture',
-         how='Mean Sentinel-2 NDMI of vegetation in the square, scaled to the region (2nd–98th percentile).',
-         why='Moist, lush vegetation is better food and cover in summer; dry stress lowers both. Rated "high" in the feasibility study.',
-         source='Copernicus Sentinel-2 L2A, 24 Jul 2026'),
-    dict(id='crops', label='Farmland nearby',
+    dict(id='crops', group=G_FOOD, label='Farmland nearby',
          how='Share of cropland within 600 m (50% or more → 100).',
-         why='Wild boar raid maize and cereals next to forest; crops are also roe deer food.',
+         why='Wild boar raid maize and cereals; crops are also roe deer food.',
          source='ESA WorldCover 2021'),
-    dict(id='diversity', label='Habitat variety',
-         how='Shannon diversity of land-cover types (forest, shrub, grass, crop, water, wetland) within 600 m; four evenly mixed types → 100.',
+    dict(id='moisture', group=G_FOOD, label='Vegetation moisture',
+         how='Mean Sentinel-2 NDMI of the vegetation in the square, scaled to the region (2nd–98th percentile).',
+         why='Lush, unstressed vegetation is better food in summer. Rated "high" in the feasibility study.',
+         source='Copernicus Sentinel-2 L2A, 24 Jul 2026'),
+    dict(id='mosaic', group=G_STRUCT, label='Field–forest mosaic',
+         how='Open land and woodland both present within 600 m: 4 × open share × woodland share (a 50/50 mix → 100).',
+         why='Roe deer are animals of the mosaic: food and cover close together.',
+         source='ESA WorldCover 2021'),
+    dict(id='edge', group=G_STRUCT, label='Forest edge length',
+         how='Length of tree-to-open boundary within 600 m, scaled to the region.',
+         why='Edges are where food meets cover. Rated "high" in the feasibility study.',
+         source='ESA WorldCover 2021'),
+    dict(id='edge_near', group=G_STRUCT, label='Close to a forest edge',
+         how='Distance from the square to the nearest forest edge (on the edge → 100, 400 m or more → 0).',
+         why='Animals that feed in the open stay close to the safety of the forest edge.',
+         source='ESA WorldCover 2021'),
+    dict(id='towns_far', group=G_DIST, label='Away from towns',
+         how='Mean distance to built-up land (0 m → 0, 1 km or more → 100).',
+         why='People, dogs and traffic around villages disturb wildlife; deer keep their distance.',
+         source='ESA WorldCover 2021 (built-up)'),
+    dict(id='roads_far', group=G_DIST, label='Away from roads',
+         how='Mean distance to the nearest public road (0 m → 0, 800 m or more → 100).',
+         why='Hunting and recreation disturb deer more than wolves do (Ecology & Evolution 2026); traffic kills and scares game.',
+         source='OpenStreetMap roads'),
+    dict(id='water', group=G_WATER, label='Water nearby',
+         how='Distance to the nearest river, stream, lake or wetland (water in the square → 100, 400 m or more → 0).',
+         why='Drinking; wild boar also need wet ground to wallow in.',
+         source='OpenStreetMap waterways + ESA WorldCover'),
+    dict(id='diversity', group=G_BIO, label='Habitat variety',
+         how='Shannon diversity of land-cover types within 600 m (four evenly mixed types → 100).',
          why='More habitat types close together support more species (landscape heterogeneity).',
          source='ESA WorldCover 2021'),
-    dict(id='natural', label='Natural cover',
-         how='Share of the square that is forest, shrub, grassland, water or wetland (not crops, not built-up, not bare).',
+    dict(id='natural', group=G_BIO, label='Natural cover',
+         how='Share of the square that is forest, shrub, grassland, water or wetland.',
          why='Semi-natural land holds more species than arable fields or towns.',
          source='ESA WorldCover 2021'),
-    dict(id='spectral', label='Plant variety (spectral)',
+    dict(id='spectral', group=G_BIO, label='Plant variety (spectral)',
          how='Spread (standard deviation) of Sentinel-2 NDVI across the vegetation in the square, scaled to the region.',
-         why='More variety of greenness in an image tends to mean more plant variety (spectral variation hypothesis).',
+         why='More variety of greenness tends to mean more plant variety (spectral variation hypothesis).',
          source='Copernicus Sentinel-2 L2A, 24 Jul 2026'),
 ]
+IDS = [d['id'] for d in INDICATORS]
 
 PRESETS = {
-    'roe_deer': dict(label='Roe deer · expert', species='roe_deer', mode='habitat',
-        weights=dict(edge=25, cover=20, forage=20, quiet=15, moisture=10, water=10),
-        rationale='Roe deer are edge animals: they feed on open land and hide in nearby woodland, so the forest–open edge gets the largest weight, then cover and food. Quiet reflects avoidance of roads and people; water and moisture matter less.',
-        description='Roe deer habitat score v1 (expert weights): forest–open edge, cover, food on open land, quiet, moisture and water.'),
-    'roe_deer_data': dict(label='Roe deer · data', species='roe_deer', mode='habitat',
-        weights={},   # learned in main() from GBIF sightings 2009–2021, tested on 2022–2026
-        rationale='Weights learned from where roe deer were actually reported: each indicator that separates the 2009–2021 sightings from the rest of the region gets a weight in proportion to how well it does (indicator AUC − 0.5). It is then tested on the 2022–2026 sightings it never saw.',
-        description='Roe deer habitat score v1 (weights learned from GBIF sightings 2009–2021, tested on 2022–2026).'),
-    'wild_boar': dict(label='Wild boar', species='wild_boar', mode='habitat',
-        weights=dict(cover=25, crops=25, water=15, quiet=15, moisture=10, edge=10),
-        rationale='Wild boar rest in dense cover and feed in fields (maize, cereals) at night, so cover and nearby farmland get the largest weights; wet ground for wallowing and quiet come next.',
-        description='Wild boar habitat score v1: cover, farmland nearby, water, quiet, moisture and edge.'),
-    'biodiversity': dict(label='Biodiversity potential', species=None, mode='biodiversity',
-        weights=dict(diversity=30, natural=25, spectral=20, quiet=15, water=10),
-        rationale='Biodiversity potential rewards places with many habitat types close together, a high share of semi-natural land, varied vegetation, little disturbance and water. It is a proxy for how much life a place can support, not a count of species.',
-        description='Biodiversity potential v1: habitat variety, natural cover, spectral diversity, quiet and water.',
-        noValidation='Not yet tested. Next step: compare with the number of species recorded in GBIF per square (biased towards towns and paths) or with field surveys.'),
+    'roe_deer': dict(label='Roe deer', species='roe_deer', mode='habitat', status='Fitted to sightings and tested',
+        weights={},   # fitted in main()
+        description='Roe deer habitat score v1.1: weights fitted to GBIF sightings with observer-bias correction, tested with spatial cross-validation.'),
+    'wild_boar': dict(label='Wild boar', species='wild_boar', mode='habitat', status='Literature weights, not yet testable',
+        weights=dict(woodland=20, cover=15, crops=25, water=15, towns_far=15, moisture=10),
+        rationale='Wild boar rest in dense cover and feed in fields at night, so woodland, dense cover and nearby farmland lead; wet ground for wallowing and distance from villages follow. Only 7 usable GBIF records exist in the region, so these literature weights cannot be tested yet.',
+        description='Wild boar habitat score v1.1 (literature weights; 7 sightings, too few to test).',
+        noValidation='Only 7 usable wild boar records in GBIF here: too few to test. Hunting-bag records per hunting ground would fix this.'),
+    'biodiversity': dict(label='Biodiversity potential', species=None, mode='biodiversity', status='Literature weights, not yet testable',
+        weights=dict(diversity=30, natural=25, spectral=20, towns_far=10, roads_far=5, water=10),
+        rationale='Many habitat types close together, a high share of semi-natural land, varied vegetation, little disturbance and water. A proxy for how much life a place can support, not a species count.',
+        description='Biodiversity potential v1.1: habitat variety, natural cover, spectral diversity, distance from towns and roads, water.',
+        noValidation='Not yet tested. Protected areas cover 37% of the region (including nature parks) and score no higher than elsewhere (AUC 0.49), so they are no useful test. Next: field surveys or effort-corrected species counts.'),
 }
 
 RAW = [
@@ -84,9 +112,13 @@ RAW = [
     dict(id='raw_crop', label='Cropland', unit='%'), dict(id='raw_built', label='Built-up', unit='%'),
     dict(id='raw_ndvi', label='NDVI of vegetation (24 Jul)', scale=0.01, digits=2),
     dict(id='raw_ndmi', label='NDMI of vegetation (24 Jul)', scale=0.01, offset=-0.5, digits=2),
-    dict(id='raw_droad', label='Mean distance to road / town', unit='m', scale=20),
+    dict(id='raw_dedge', label='Nearest forest edge', unit='m', scale=20),
+    dict(id='raw_droad_only', label='Mean distance to a road', unit='m', scale=20),
+    dict(id='raw_dtown', label='Mean distance to built-up land', unit='m', scale=40),
     dict(id='raw_dwater', label='Nearest water', unit='m', scale=20),
 ]
+REQUIRED = ('woodland', 'mosaic', 'forage')   # ecological guardrails for the fitted roe deer score
+CAP = 30                                         # no indicator above 30% of the total weight
 
 
 def write_geotiff(path, arr, bbox, nodata=-9999.0):
@@ -131,6 +163,8 @@ def auc(scores, cells):
 
 
 def ramp_png(arr, path):
+    """Quick-look PNG coloured by rank in the region (as the website does)."""
+    ok = ~np.isnan(arr); r = np.full(arr.shape, np.nan); v = arr[ok]; r[ok] = 100 * np.argsort(np.argsort(v)) / max(1, len(v) - 1); arr = r
     from PIL import Image
     stops = [(0, (44, 79, 179)), (25, (90, 160, 216)), (45, (201, 230, 239)), (55, (255, 242, 176)), (75, (245, 154, 82)), (100, (200, 21, 27))]
     xs = [v for v, _ in stops]
@@ -140,90 +174,138 @@ def ramp_png(arr, path):
     Image.fromarray(rgba, 'RGBA').resize((arr.shape[1] * 3, arr.shape[0] * 3), Image.NEAREST).save(path, optimize=True)
 
 
+
+def auc_vals(p, b):
+    """Probability that a presence value beats a background value (ties count half)."""
+    p = p[~np.isnan(p)]; b = np.sort(b[~np.isnan(b)])
+    if not len(p) or not len(b): return float('nan')
+    lo = np.searchsorted(b, p, 'left'); hi = np.searchsorted(b, p, 'right')
+    return float(np.mean((lo + (hi - lo) / 2) / len(b)))
+
+
 def main(export_path):
     ex = json.loads(Path(export_path).read_text())
-    cols, rows, bbox = ex['cols'], ex['rows'], ex['bbox']
+    cols, rows, bbox = ex['cols'], ex['rows'], ex['bbox']; n = cols * rows
     raw = gzip.decompress(base64.b64decode(ex['layers_b64']))
-    order = ex['layer_order']; n = cols * rows
-    L = {k: np.frombuffer(raw[i * n:(i + 1) * n], np.uint8).reshape(rows, cols) for i, k in enumerate(order)}
+    L = {k: np.frombuffer(raw[i * n:(i + 1) * n], np.uint8).copy() for i, k in enumerate(ex['layer_order'])}
     valid = L['valid'] == 1
+    # derived indicator: field–forest mosaic
+    o = np.minimum(L['open'].astype(float) * 0.6 / 100, 1); w = L['woodland'].astype(float) / 100
+    L['mosaic'] = np.where((L['open'] == 255) | (L['woodland'] == 255), 255, np.clip(np.round(400 * o * w), 0, 100)).astype(np.uint8)
+    X = {k: np.where(L[k] == 255, np.nan, L[k].astype(float)) for k in IDS}
 
-    def score(weights):
-        num = np.zeros((rows, cols)); den = np.zeros((rows, cols))
-        for k, w in weights.items():
-            v = L[k].astype(float); ok = v != 255
-            num += np.where(ok, w * v, 0); den += np.where(ok, w, 0)
-        out = np.where((den > 0) & valid, num / np.maximum(den, 1e-9), np.nan)
-        return out
+    def score_at(weights, idx):
+        num = np.zeros(len(idx)); den = np.zeros(len(idx))
+        for k, v in weights.items():
+            if v <= 0: continue
+            a = X[k][idx]; ok = ~np.isnan(a); num += np.where(ok, v * a, 0); den += np.where(ok, v, 0)
+        return np.where(den > 0, num / np.maximum(den, 1e-9), np.nan)
 
-    # GBIF sightings → cell indices
+    def score_map(weights):
+        s = score_at(weights, np.arange(n)); s[~valid] = np.nan
+        return s.reshape(rows, cols)
+
+    def cell(lon, lat):
+        c = int((lon - bbox[0]) / (bbox[2] - bbox[0]) * cols); r = int((bbox[3] - lat) / (bbox[3] - bbox[1]) * rows)
+        return r * cols + c if 0 <= c < cols and 0 <= r < rows else None
+
+    sightings = {sp: [cell(p['lon'], p['lat']) for p in ex['gbif'] if p['sp'] == sp] for sp in ('roe_deer', 'wild_boar')}
+    pres = np.array([c for c in sightings['roe_deer'] if c is not None and valid[c]])
+    tg = np.array([c for c in (cell(p[0], p[1]) for p in ex['target_group']['points']) if c is not None and valid[c]])
+    allc = np.where(valid)[0]
+
+    def fit(p, b):
+        wts = {k: (10 if k in REQUIRED else 0) for k in IDS}
+        best = auc_vals(score_at(wts, p), score_at(wts, b))
+        for _ in range(8):
+            improved = False
+            for k in IDS:
+                for v in range(0, 55, 5):
+                    if v == wts[k] or (k in REQUIRED and v < 5): continue
+                    t = dict(wts); t[k] = v; tot = sum(t.values())
+                    if not tot or max(t.values()) / tot > CAP / 100 + 1e-9: continue
+                    a = auc_vals(score_at(t, p), score_at(t, b))
+                    if a > best + 0.002: best, wts, improved = a, t, True
+            if not improved: break
+        tot = sum(wts.values())
+        return {k: int(round(v * 100 / tot / 5) * 5) for k, v in wts.items() if v > 0}
+
+    # 5-fold spatial cross-validation on 5 × 5 blocks of ~9 km
+    blk = lambda c: (c // cols) * 5 // rows * 5 + (c % cols) * 5 // cols
+    rng = np.random.default_rng(7); order = np.arange(25); rng.shuffle(order); fold = {b: i % 5 for i, b in enumerate(order)}
+    fp = np.array([fold[blk(c)] for c in pres]); fb = np.array([fold[blk(c)] for c in tg]); fa = np.array([fold[blk(c)] for c in allc])
+    folds = []
+    for f in range(5):
+        wf = fit(pres[fp != f], tg[fb != f]); pt = pres[fp == f]
+        folds.append(dict(fold=f, test_sightings=int(len(pt)), weights=wf,
+                          auc_vs_effort=round(auc_vals(score_at(wf, pt), score_at(wf, tg[fb == f])), 3),
+                          auc_vs_region=round(auc_vals(score_at(wf, pt), score_at(wf, allc[fa == f])), 3)))
+    final = fit(pres, tg)
+    PRESETS['roe_deer']['weights'] = final
+    cv_e = float(np.average([f['auc_vs_effort'] for f in folds], weights=[f['test_sightings'] for f in folds]))
+    cv_r = float(np.average([f['auc_vs_region'] for f in folds], weights=[f['test_sightings'] for f in folds]))
+    expert = dict(edge=25, cover=20, forage=20, roads_far=8, towns_far=7, moisture=10, water=10)
+    ev = dict(cv_vs_effort=round(cv_e, 3), cv_vs_region=round(cv_r, 3),
+              all_vs_effort=round(auc_vals(score_at(final, pres), score_at(final, tg)), 3),
+              all_vs_region=round(auc_vals(score_at(final, pres), score_at(final, allc)), 3),
+              expert_vs_effort=round(auc_vals(score_at(expert, pres), score_at(expert, tg)), 3),
+              expert_vs_region=round(auc_vals(score_at(expert, pres), score_at(expert, allc)), 3),
+              single={k: dict(vs_effort=round(auc_vals(X[k][pres], X[k][tg]), 3), vs_region=round(auc_vals(X[k][pres], X[k][allc]), 3)) for k in IDS},
+              folds=folds, n_sightings=int(len(pres)), n_background=int(len(tg)))
+    PRESETS['roe_deer']['rationale'] = (
+        f'Weights fitted to {len(pres)} roe deer sightings against {len(tg)} sightings of other mammals made by the same kind of observers, '
+        f'with guardrails: woodland nearby, the field–forest mosaic and green food always count, and no indicator takes more than {CAP}%. '
+        f'The data say roe deer here are found on open feeding land in a field–forest mosaic, away from towns and roads.')
+    PRESETS['roe_deer']['heldout'] = (
+        f'Spatial cross-validation (9 km blocks held out): AUC {cv_e:.2f} against where people report other mammals, '
+        f'{cv_r:.2f} against the whole region. The first expert guess scored {ev["expert_vs_effort"]:.2f} and {ev["expert_vs_region"]:.2f}.')
+
     validation = {}
     for sp in ('roe_deer', 'wild_boar'):
         pts = [p for p in ex['gbif'] if p['sp'] == sp]
-        cells = []
-        for p in pts:
-            c = int((p['lon'] - bbox[0]) / (bbox[2] - bbox[0]) * cols); r = int((bbox[3] - p['lat']) / (bbox[3] - bbox[1]) * rows)
-            if 0 <= c < cols and 0 <= r < rows: cells.append(r * cols + c)
         yrs = sorted(p['year'] for p in pts if p.get('year'))
-        validation[sp] = dict(cells=cells, n_records=len(pts), years=f'{yrs[0]}–{yrs[-1]}' if yrs else 'n/a',
+        validation[sp] = dict(cells=[c for c in sightings[sp] if c is not None], n_records=len(pts), years=f'{yrs[0]}–{yrs[-1]}' if yrs else 'n/a',
                               source='GBIF.org occurrence search, human observations, coordinate uncertainty ≤ 250 m')
+    validation['roe_deer']['background_cells'] = tg.tolist()
+    validation['roe_deer']['background'] = ex['target_group']['description']
 
-    # --- learn roe deer weights from older sightings, keep newer ones for the test (temporal split)
-    def cell_of(p):
-        c = int((p['lon'] - bbox[0]) / (bbox[2] - bbox[0]) * cols); r = int((bbox[3] - p['lat']) / (bbox[3] - bbox[1]) * rows)
-        return r * cols + c if 0 <= c < cols and 0 <= r < rows else None
-    roe = [p for p in ex['gbif'] if p['sp'] == 'roe_deer' and cell_of(p) is not None]
-    SPLIT = 2022
-    train = np.array([cell_of(p) for p in roe if (p.get('year') or 0) < SPLIT]); test = np.array([cell_of(p) for p in roe if (p.get('year') or 0) >= SPLIT])
-    single = {d['id']: auc(score({d['id']: 1}).ravel(), train)[0] for d in INDICATORS}
-    learned = {k: int(max(5, min(50, round((a - 0.5) * 500 / 5) * 5))) for k, a in single.items() if a > 0.52}
-    PRESETS['roe_deer_data']['weights'] = learned
-    heldout = {}
-    for pid in ('roe_deer', 'roe_deer_data'):
-        a, k, top = auc(score(PRESETS[pid]['weights']).ravel(), test)
-        heldout[pid] = dict(auc=round(a, 3), n=k, in_top30=round(top, 3))
-    PRESETS['roe_deer_data']['heldout'] = f"Learned from {len(train)} sightings (before {SPLIT}); on the {len(test)} newer sightings it never saw: AUC {heldout['roe_deer_data']['auc']:.2f}, {round(100 * heldout['roe_deer_data']['in_top30'])}% in the top 30% of squares (expert weights on the same sightings: AUC {heldout['roe_deer']['auc']:.2f})."
-    PRESETS['roe_deer_data']['train_indicator_auc'] = {k: round(v, 3) for k, v in single.items()}
-
-    stats = {'heldout': heldout}
     (OUT / 'qgis').mkdir(parents=True, exist_ok=True); (OUT / 'preview').mkdir(parents=True, exist_ok=True)
+    stats = {}
     for pid, p in PRESETS.items():
-        sc = score(p['weights'])
+        sc = score_map(p['weights'])
         write_geotiff(OUT / 'qgis' / f'{pid}_score.tif', sc, bbox)
         ramp_png(sc, OUT / 'preview' / f'{pid}_score.png')
-        st = dict(mean=round(float(np.nanmean(sc)), 1), p10=round(float(np.nanpercentile(sc, 10)), 1), p90=round(float(np.nanpercentile(sc, 90)), 1))
-        if p['species'] and len(validation[p['species']]['cells']) >= 30:
-            a, k, top = auc(sc.ravel(), np.array(validation[p['species']]['cells']))
-            st.update(auc=round(a, 3), n=k, in_top30=round(top, 3))
-            # each indicator alone, to see which ones carry the signal
-            st['indicator_auc'] = {d['id']: round(auc(score({d['id']: 1}).ravel(), np.array(validation[p['species']]['cells']))[0], 3) for d in INDICATORS}
-        stats[pid] = st
+        stats[pid] = dict(mean=round(float(np.nanmean(sc)), 1), p10=round(float(np.nanpercentile(sc, 10)), 1), p90=round(float(np.nanpercentile(sc, 90)), 1))
     for d in INDICATORS:
-        write_geotiff(OUT / 'qgis' / f'indicator_{d["id"]}.tif', np.where(valid & (L[d['id']] != 255), L[d['id']].astype(float), np.nan), bbox)
+        write_geotiff(OUT / 'qgis' / f'indicator_{d["id"]}.tif', np.where(valid, X[d['id']], np.nan).reshape(rows, cols), bbox)
 
-    keep = ['valid'] + [d['id'] for d in INDICATORS] + [r['id'] for r in RAW]
+    keep = ['valid'] + IDS + [r['id'] for r in RAW]
     (OUT / 'grid.bin').write_bytes(b''.join(L[k].tobytes() for k in keep))
     meta = dict(
-        version='WildScope v1', created=ex['created'], region='Freiburg & western Black Forest (DE)', region_short='Freiburg & Black Forest (DE)',
+        version='WildScope v1.1', created=ex['created'], region='Freiburg & western Black Forest (DE)', region_short='Freiburg & Black Forest (DE)',
         bbox=bbox, cols=cols, rows=rows, cell_m=200, bin='grid.bin', layers=keep,
         dates=dict(sentinel2=ex['dates']['sentinel2'], sentinel2_scene=ex['dates']['scene'], worldcover='2021', osm=ex['dates']['osm'], gbif=ex['dates']['gbif']),
         sources_short='Sentinel-2 L2A (Copernicus/ESA via Microsoft Planetary Computer), ESA WorldCover 2021, OpenStreetMap, GBIF',
-        indicators=INDICATORS, raw=RAW, presets=PRESETS, validation=validation, stats=stats, normalisation=ex['norm'],
+        indicators=INDICATORS, raw=RAW, presets=PRESETS, validation=validation, evidence=dict(roe_deer=ev), stats=stats, normalisation=ex['norm'],
         method=dict(
-            lead='Each 200 m square gets ten indicators, each scaled from 0 (poor) to 100 (good). A score is the weighted average of the indicators you tick. All inputs are free, open data; nothing is invented.',
-            validation=f"For roe deer we test the score against real sightings: {len(validation['roe_deer']['cells'])} GBIF records ({validation['roe_deer']['years']}, citizen science, location within 250 m). AUC is the chance that a square with a sighting scores higher than a random square: 0.5 = no better than random, 0.7 or more = useful. Result: the expert weights score AUC {stats['roe_deer']['auc']:.2f} – worse than random – because people report roe deer mostly in open farmland mosaic (55% open land in sighting squares vs 34% in the region) and rarely inside forest, where deer are hard to see. Weights learned from the 2009–2021 sightings reach AUC {heldout['roe_deer_data']['auc']:.2f} on the 2022–2026 sightings they never saw: weak but real. Sightings are biased towards paths and places people visit, so treat this as a first check, not proof.",
-            limits=['Weights are expert first guesses from the literature and the feasibility study; they are not fitted to data yet.',
-                    'One clear Sentinel-2 date (24 Jul 2026). Weekly updates and comparison with each place\'s seasonal normal come next.',
-                    'ESA WorldCover is from 2021 and does not separate maize from cereals, or broadleaf from conifer forest. DLR crop and forest maps can replace it in Germany.',
-                    'Roads are clipped to the region, so distances near the edge are slightly too large. Footpaths and forest tracks are not counted yet.',
-                    'Wild boar has only 7 usable GBIF sightings here, so its score cannot be tested yet. Biodiversity potential has no independent test yet.',
+            lead='Each 200 m square gets 15 indicators, each scaled from 0 (poor) to 100 (good). A score is the weighted average of the indicators that are ticked. All inputs are free, open data; nothing is invented.',
+            validation=(f'The roe deer score is fitted and tested on real sightings: {len(pres)} GBIF records (citizen science, location within 250 m). '
+                        f'People report animals where people go, so the comparison is made against {len(tg)} records of other mammals by the same kind of observers ("target-group background"). '
+                        f'AUC is the chance that a square with a roe deer record scores higher than a square with another mammal record: 0.5 = no better than chance, 0.7 or more = useful. '
+                        f'Tested on 9 km blocks the fit never saw, the score reaches AUC {cv_e:.2f} ({cv_r:.2f} against the whole region). '
+                        f'The first, purely expert guess scored {ev["expert_vs_effort"]:.2f}: it put too much weight on dense forest, where people rarely see deer.'),
+            limits=['One clear Sentinel-2 date (24 Jul 2026). Weekly updates and each place\'s seasonal normal come next.',
+                    'Sightings are citizen science: they show where people see roe deer, not every place deer use. Hunting-bag, camera-trap or GPS-collar data would give a stronger test.',
+                    'ESA WorldCover (2021) does not separate maize from cereals, or broadleaf from conifer forest; DLR maps can replace it in Germany.',
+                    'Roads and towns outside the region are not counted, so distances near the edge are slightly too large. Footpaths and forest tracks are not counted yet.',
+                    'Wild boar (7 records) and biodiversity potential cannot be tested yet; their weights come from the literature.',
                     'Scores are relative to this region; a 70 here is not the same as a 70 in another region.'],
             sources=['Copernicus Sentinel-2 L2A, scene ' + ex['dates']['scene'] + ' (contains modified Copernicus Sentinel data 2026), via Microsoft Planetary Computer',
                      'ESA WorldCover 10 m 2021 v200 (© ESA WorldCover project, CC BY 4.0), via Microsoft Planetary Computer',
                      '© OpenStreetMap contributors (ODbL), roads and waterways, downloaded ' + ex['dates']['osm'],
-                     'GBIF.org occurrence data for Capreolus capreolus and Sus scrofa, downloaded ' + ex['dates']['gbif'] + ' (CC BY / CC BY-NC per dataset)']))
+                     'GBIF.org occurrence data (roe deer, wild boar and all other mammals), downloaded ' + ex['dates']['gbif'] + ' (CC BY / CC BY-NC per dataset)']))
     (OUT / 'grid.json').write_text(json.dumps(meta, ensure_ascii=False, indent=1))
-    print(json.dumps(stats, indent=1))
+    print(json.dumps(dict(final=final, evidence={k: v for k, v in ev.items() if k != 'single'}, stats=stats), indent=1))
 
 
 if __name__ == '__main__':

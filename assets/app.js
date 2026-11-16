@@ -2,14 +2,15 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor } from './js/globe.js?v=20261117a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261117a';
-import { LayerManager } from './js/layers.js?v=20261117a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261117a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261117a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261117a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261117a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261117a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261117c';
+import { loadManifest, allDates } from './js/manifest.js?v=20261117c';
+import { LayerManager } from './js/layers.js?v=20261117c';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261117c';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261117c';
+import { writeGeoTiff } from './js/geotiff.js?v=20261117c';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261117c';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261117c';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261117c';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -50,16 +51,34 @@ async function initialiseMap() {
   return map;
 }
 
+/** No WebGL (graphics acceleration off, some work laptops and virtual machines): a 2D Leaflet map
+    that keeps the scores, click-to-explain, search, labels and the hunting-ground boundary. */
+async function initialiseLiteMap(reason) {
+  await ensureLeaflet();
+  try { state.map?.remove?.(); } catch { /* the failed MapLibre map */ }
+  const host = $('map'); host.replaceChildren(); host.className = '';
+  window.maplibregl = { Popup: LitePopup, Marker: LiteMarker };   // the two classes app.js creates directly
+  const map = new LiteMap(host, { basemaps: BASEMAPS, active: state.basemap, center: [7.97, 48.05], zoom: isPhone() ? 9 : 10 });
+  state.map = map; state.lite = true; state.projection = 'mercator';
+  $('app').classList.add('lite');
+  map.on('mousemove', (e) => setText('coordinates', `${e.lngLat.lat.toFixed(5)}° N  ·  ${e.lngLat.lng.toFixed(5)}° E`));
+  map.on('click', onMapClick);
+  map.on('moveend', () => scheduleConditions());
+  $('fly-btn').hidden = true; $('globe-btn').hidden = true;
+  warn(`Simple 2D map: this browser has WebGL (graphics acceleration) switched off${reason ? ` (${reason})` : ''}. Scores work fully; the 3D globe and the satellite data layers need WebGL. In Chrome: Settings → System → "Use graphics acceleration when available", then restart Chrome.`, true);
+  return map;
+}
+
 function onMapClick(e) {
-  const { map, mgr } = state; if (!mgr) return;
+  const { map, mgr } = state; if (!map) return;
   condPinned = e.lngLat; updateConditions(e.lngLat, 'Clicked spot');
   setTimeout(() => { condPinned = null; }, 30000);   // map centre takes over again after 30 s of panning
-  const ids = mgr.queryLayerIds();
+  const ids = mgr ? mgr.queryLayerIds() : [];
   const hit = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids })[0] : null;
   if (!hit) {
     const i = state.grid && state.scoreOn ? state.grid.cellAt(e.lngLat.lng, e.lngLat.lat) : -1;
     if (i >= 0 && !Number.isNaN(state.grid.scores[i])) { selectCell(i, e.lngLat); return; }
-    state.popup?.remove(); mgr.highlight(null); highlightCell(-1); clearFeature(); return;
+    state.popup?.remove(); mgr?.highlight(null); highlightCell(-1); clearFeature(); return;
   }
   highlightCell(-1);
   const layerId = hit.layer.id.replace(/^lyr-/, '').replace(/-(fill|circle|pin)$/, '');
@@ -99,8 +118,8 @@ function scheduleConditions(immediate) {
   condTimer = setTimeout(() => {
     if (!state.map || condPinned) return;
     const z = state.map.getZoom();
-    const c = z < 4 ? { lat: 48.1, lng: 8.2 } : state.map.getCenter();
-    updateConditions(c, z < 4 ? 'Pilot region (Black Forest)' : 'Map centre');
+    const c = z < 4 ? { lat: 48.05, lng: 7.97 } : state.map.getCenter();
+    updateConditions(c, z < 4 ? 'Pilot region (Freiburg & Black Forest)' : 'Map centre');
   }, immediate === true ? 0 : 900);
 }
 
@@ -173,7 +192,7 @@ function updateProjectionButtons() {
   document.querySelectorAll('[data-projection]').forEach(b => { const a = b.dataset.projection === state.projection; b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
 }
 function updateBasemap(which, fromUser) {
-  state.basemap = which; if (state.map) setBasemap(state.map, which);
+  state.basemap = which; if (state.map) { if (state.lite) state.map.setBasemap(which); else setBasemap(state.map, which); }
   syncLabels();
   const covering = state.mgr?.layersForSpecies().filter(l => state.mgr.isActive(l) && l.style?.covers) || [];
   if (fromUser && covering.length) warn(`"${covering[0].title}" is switched on and covers the base map. Switch it off in Layers to see the ${which === 'streets' ? 'Map' : 'Satellite'} base map.`);
@@ -211,9 +230,9 @@ function updateAnalytics() {
 
 /* ---------- modes: Habitat · Biodiversity · Hunting ---------- */
 const MODES = {
-  habitat: { lead: 'Where can a species live? A 0–100 habitat score for every 200 m square.', title: 'Habitat score', presets: ['roe_deer', 'roe_deer_data', 'wild_boar'], right: 'Score insights' },
+  habitat: { lead: 'Where can a species live? A 0–100 habitat score for every 200 m square.', title: 'Habitat score', presets: ['roe_deer', 'wild_boar'], right: 'Score insights' },
   biodiversity: { lead: 'How varied and natural is the landscape? A biodiversity potential score for every 200 m square.', title: 'Biodiversity potential', presets: ['biodiversity'], right: 'Score insights' },
-  hunting: { lead: 'Good habitat plus the right moment: habitat score, live wind and light, and your own hunting ground.', title: 'Habitat score for hunting', presets: ['roe_deer', 'roe_deer_data', 'wild_boar'], right: 'Conditions & insights' },
+  hunting: { lead: 'Good habitat plus the right moment: habitat score, live wind and light, and your own hunting ground.', title: 'Habitat score for hunting', presets: ['roe_deer', 'wild_boar'], right: 'Conditions & insights' },
 };
 function setMode(mode) {
   const m = MODES[mode] || MODES.habitat; state.mode = mode;
@@ -243,35 +262,55 @@ function renderPresets() {
 function renderIndicators() {
   const g = state.grid; if (!g) return;
   const w = weightsFor(state.preset); const memo = (state.memo ||= {});
-  const order = [...g.meta.indicators].sort((a, b) => (w[b.id] || 0) - (w[a.id] || 0));
-  const rows = order.map(d => {
+  const groups = [...new Set(g.meta.indicators.map(d => d.group))];
+  const row = (d) => {
     const on = (w[d.id] || 0) > 0; const val = on ? w[d.id] : (memo[`${state.preset}:${d.id}`] || 10);
     const why = el('div', { class: 'ind-why', hidden: true }, el('p', {}, el('b', {}, 'Measures: '), d.how), el('p', {}, el('b', {}, 'Why it matters: '), d.why), el('p', { class: 'ind-src' }, `Data: ${d.source}`));
-    const row = el('div', { class: `ind-row${on ? '' : ' off'}`, 'data-ind': d.id },
+    const r = el('div', { class: `ind-row${on ? '' : ' off'}`, 'data-ind': d.id },
       el('label', { class: 'ind-check' }, el('input', { type: 'checkbox', checked: on, onchange: (e) => {
-        if (e.target.checked) w[d.id] = Number(row.querySelector('input[type=range]').value) || 10;
+        if (e.target.checked) w[d.id] = Number(r.querySelector('input[type=range]').value) || 10;
         else { memo[`${state.preset}:${d.id}`] = w[d.id] || 10; w[d.id] = 0; }
-        row.classList.toggle('off', !e.target.checked); recompute();
+        r.classList.toggle('off', !e.target.checked); markCustom(); recompute();
       } }), el('span', {}, d.label)),
       el('input', { type: 'range', min: 5, max: 50, step: 5, value: val, 'aria-label': `${d.label} weight`, oninput: (e) => {
-        const v = Number(e.target.value); row.querySelector('.ind-w').textContent = v;
-        if (row.querySelector('input[type=checkbox]').checked) { w[d.id] = v; recompute(); } else memo[`${state.preset}:${d.id}`] = v;
+        const v = Number(e.target.value); r.querySelector('.ind-w').textContent = `${v}`;
+        if (r.querySelector('input[type=checkbox]').checked) { w[d.id] = v; markCustom(); recompute(); } else memo[`${state.preset}:${d.id}`] = v;
       } }),
-      el('span', { class: 'ind-w', title: 'Weight' }, val),
+      el('span', { class: 'ind-w', title: 'Weight' }, `${val}`),
       el('button', { type: 'button', class: 'ind-info', 'aria-label': `About ${d.label}`, 'aria-expanded': 'false', onclick: (e) => {
         why.hidden = !why.hidden; e.currentTarget.setAttribute('aria-expanded', String(!why.hidden)); } }, 'i'),
       why);
-    return row;
-  });
-  $('indicator-list').replaceChildren(...rows);
+    return r;
+  };
+  const used = [], more = [];
+  for (const grp of groups) {
+    const items = g.meta.indicators.filter(d => d.group === grp);
+    const on = items.filter(d => (w[d.id] || 0) > 0), off = items.filter(d => !((w[d.id] || 0) > 0));
+    if (on.length) used.push(el('div', { class: 'ind-group' }, grp), ...on.map(row));
+    if (off.length) more.push(el('div', { class: 'ind-group' }, grp), ...off.map(row));
+  }
+  $('indicator-list').replaceChildren(...used,
+    more.length ? el('details', { class: 'ind-more' }, el('summary', {}, `More indicators (${g.meta.indicators.length - Object.keys(activeWeights()).length})`), ...more) : null);
+  markCustom();
+}
+function markCustom() {
+  const p = preset(); if (!p) return;
+  const cur = activeWeights(); const base = p.weights;
+  const same = Object.keys(cur).length === Object.keys(base).length && Object.entries(base).every(([k, v]) => cur[k] === v);
+  const tag = $('score-status');
+  tag.textContent = same ? p.status : 'Custom weights';
+  tag.className = `tag ${same && /tested/i.test(p.status) && !/not/i.test(p.status) ? 'tag-real' : 'tag-custom'}`;
+  $('preset-reset').hidden = same;
 }
 
 let paintRaf = 0;
 function recompute() {
   const g = state.grid; if (!g) return;
+  if (state.selectedCell >= 0) state.popup?.remove();   // the open popup would show the old score
   const weights = activeWeights();
   const st = g.compute(weights);
   cancelAnimationFrame(paintRaf);
+  computeQuantiles();
   paintRaf = requestAnimationFrame(() => { drawScore(); updateScoreInsights(st); });
 }
 function drawScore() {
@@ -290,9 +329,10 @@ function drawScore() {
 }
 
 /** AUC: chance that a random sighting square scores higher than a random square of the region. */
-function sightingsAUC(cells) {
+function sightingsAUC(cells, background) {
   const sc = state.grid.scores; const bg = [];
-  for (let i = 0; i < sc.length; i++) if (!Number.isNaN(sc[i])) bg.push(sc[i]);
+  if (background) { for (const i of background) if (!Number.isNaN(sc[i])) bg.push(sc[i]); }
+  else for (let i = 0; i < sc.length; i++) if (!Number.isNaN(sc[i])) bg.push(sc[i]);
   bg.sort((a, b) => a - b);
   const below = (v) => { let lo = 0, hi = bg.length; while (lo < hi) { const m = (lo + hi) >> 1; if (bg[m] < v) lo = m + 1; else hi = m; } let eq = lo; while (eq < bg.length && bg[eq] === v) eq++; return (lo + (eq - lo) / 2) / bg.length; };
   const p = cells.map(i => sc[i]).filter(v => !Number.isNaN(v));
@@ -307,25 +347,23 @@ function updateScoreInsights(st) {
   setText('insight-label', `${p.label.toUpperCase()} · MEAN SCORE`);
   setText('insight-count', Number.isNaN(st.mean) ? '—' : Math.round(st.mean));
   setText('insight-sub', `${st.cells.toLocaleString()} squares of 200 m · ${ticked} indicator${ticked === 1 ? '' : 's'} ticked`);
-  const { total, above } = histogramBars($('distribution-bars'), st.hist, state.minScore);
-  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * above / Math.max(1, total))}% of the region (${(above * 0.04).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
+  histogramBars($('distribution-bars'), st.hist, state.minScore);
+  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * g.shown / Math.max(1, st.cells))}% of the region (${(g.shown * 0.04).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
   $('mini-track-fill').style.width = `${Math.round(st.mean || 0)}%`;
-  // Evidence: real sightings from GBIF
+  // Evidence: real sightings from GBIF, compared with where people report other mammals (observer effort)
   const v = g.meta.validation?.[p.species || ''];
-  const box = $('validation-box');
-  if (!v) { box.hidden = false; box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.')); }
-  else if (v.cells.length < 30) { box.hidden = false; box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sightings`)), el('p', { class: 'control-note' }, `Only ${v.cells.length} ${p.label.toLowerCase()} sightings with exact locations in GBIF for this region: too few to test the score. Hunting-bag or camera-trap data would fix this.`)); }
+  const box = $('validation-box'); box.hidden = false;
+  if (!v) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.'));
+  else if (v.cells.length < 30) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sightings`)), el('p', { class: 'control-note' }, p.noValidation || `Only ${v.cells.length} sightings with exact locations: too few to test.`));
   else {
-    const r = sightingsAUC(v.cells);
-    const verdict = r.auc >= 0.7 ? 'good' : r.auc >= 0.6 ? 'fair' : r.auc > 0.55 ? 'weak' : r.auc >= 0.45 ? 'no better than random' : 'worse than random';
-    box.hidden = false;
+    const fair = sightingsAUC(v.cells, v.background_cells), region = sightingsAUC(v.cells);
+    const verdict = fair.auc >= 0.7 ? 'good' : fair.auc >= 0.6 ? 'fair' : fair.auc > 0.55 ? 'weak' : fair.auc >= 0.45 ? 'no better than chance' : 'worse than chance';
     box.replaceChildren(
-      el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: real sightings'), el('span', { class: `tag ${r.auc >= 0.6 ? 'tag-real' : ''}` }, `AUC ${r.auc.toFixed(2)} · ${verdict}`)),
-      el('div', { class: 'auc-track' }, el('i', { style: `left:${Math.max(0, Math.min(100, (r.auc - 0.5) * 200))}%` })),
-      el('div', { class: 'range-label' }, el('span', {}, '0.5 random'), el('span', {}, '1.0 perfect')),
-      el('p', { class: 'control-note' }, `${r.n} roe deer sightings from GBIF (${v.years}, location within 250 m). ${Math.round(100 * r.inTop30)}% of them fall in the top 30% of squares (30% expected by chance). Change the ticks and weights: this check updates live.`),
-      p.heldout ? el('p', { class: 'control-note heldout' }, el('b', {}, 'Fair test: '), p.heldout) : null,
-      r.auc < 0.5 ? el('p', { class: 'control-note' }, 'Why so low? People report roe deer mostly in open farmland, where they are easy to see, and rarely inside forest. Try "Roe deer · data", or untick Tree cover and Vegetation moisture.') : null);
+      el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: real sightings'), el('span', { class: `tag ${fair.auc >= 0.6 ? 'tag-real' : 'tag-custom'}` }, `AUC ${fair.auc.toFixed(2)} · ${verdict}`)),
+      el('div', { class: 'auc-track' }, el('i', { style: `left:${Math.max(0, Math.min(100, (fair.auc - 0.5) * 200))}%` })),
+      el('div', { class: 'range-label' }, el('span', {}, '0.5 chance'), el('span', {}, '1.0 perfect')),
+      el('p', { class: 'control-note' }, `${fair.n} roe deer sightings (GBIF, ${v.years}) against ${v.background_cells.length.toLocaleString()} sightings of other mammals by the same kind of observers, so the test is not fooled by where people walk. Against all squares of the region: AUC ${region.auc.toFixed(2)}. This live check uses the same sightings the weights were fitted on; the honest figure for new areas is below. Untick or re-weight indicators and watch it change.`),
+      p.heldout ? el('p', { class: 'control-note heldout' }, el('b', {}, 'Tested on unseen areas: '), p.heldout) : null);
   }
   setText('score-note', `${g.meta.version} · ${g.meta.region} · Sentinel-2 ${formatDate(g.meta.dates.sentinel2)} · ESA WorldCover ${g.meta.dates.worldcover} · OSM ${formatDate(g.meta.dates.osm)}`);
   setText('meta-layer', `${p.label} (${g.meta.version})`); setText('meta-date', `Sentinel-2 ${formatDate(g.meta.dates.sentinel2)}`);
@@ -333,6 +371,24 @@ function updateScoreInsights(st) {
   setText('meta-coverage', g.meta.region); setText('meta-source', g.meta.sources_short);
   setText('meta-description', p.description || '');
   setText('metric-latest', `S-2 ${formatDate(g.meta.dates.sentinel2)}`);
+}
+
+/** Plain-language class, relative to this region: top 10% = very good, next 20% = good, middle 40% = average, bottom 30% = poor. */
+function scoreClass(v) {
+  const q = state.quantiles; if (!q || Number.isNaN(v)) return '';
+  return v >= q[90] ? 'very good' : v >= q[70] ? 'good' : v >= q[30] ? 'average' : 'poor';
+}
+function computeQuantiles() {
+  const v = Array.from(state.grid.scores).filter(x => !Number.isNaN(x)).sort((a, b) => a - b);
+  const at = (p) => v[Math.min(v.length - 1, Math.floor(v.length * p / 100))];
+  state.quantiles = { 30: at(30), 70: at(70), 80: at(80), 90: at(90) };
+}
+function setBest(pct) {
+  computeQuantiles();
+  const t = pct ? Math.floor(state.quantiles[100 - pct]) : 0;
+  state.minScore = t; $('score-threshold').value = t; setText('threshold-label', t);
+  document.querySelectorAll('[data-best]').forEach(b => b.classList.toggle('active', Number(b.dataset.best) === pct));
+  recompute();
 }
 
 function highlightCell(i) {
@@ -347,9 +403,9 @@ function selectCell(i, lngLat, quiet) {
   const ex = g.explain(i, activeWeights());
   const [w, s, e, n] = g.cellBounds(i); const c = { lat: (s + n) / 2, lng: (w + e) / 2 };
   highlightCell(i); state.mgr?.highlight(null);
-  setText('feature-name', `${p.label}: ${Number.isNaN(ex.score) ? '—' : Math.round(ex.score)} / 100`);
+  setText('feature-name', `${p.label}: ${Number.isNaN(ex.score) ? '—' : Math.round(ex.score)} / 100 · ${scoreClass(ex.score)}`);
   setText('feature-type', '200 m square');
-  $('feature-caption').textContent = `Square centred at ${c.lat.toFixed(4)}° N, ${c.lng.toFixed(4)}° E.`;
+  $('feature-caption').textContent = `Better than ${Math.round(g.rankOf(ex.score))}% of the region · square centred at ${c.lat.toFixed(4)}° N, ${c.lng.toFixed(4)}° E.`;
   const parts = ex.parts;
   $('feature-attributes').replaceChildren(
     el('div', { class: 'explain' },
@@ -367,7 +423,7 @@ function selectCell(i, lngLat, quiet) {
   if (isPhone()) setTab('insights'); else setCollapsed('right', false);
   state.popup?.remove();
   state.popup = new maplibregl.Popup({ closeButton: true, maxWidth: '230px', offset: 6 }).setLngLat(lngLat || c)
-    .setDOMContent(el('div', { class: 'popup' }, el('b', {}, p.label), el('div', { class: 'popup-score' }, el('i', { class: 'chip', style: `background:${scoreCSS(ex.score)}` }), `Score ${Math.round(ex.score)} / 100`),
+    .setDOMContent(el('div', { class: 'popup' }, el('b', {}, p.label), el('div', { class: 'popup-score' }, el('i', { class: 'chip', style: `background:${scoreCSS(ex.score)}` }), `${Math.round(ex.score)} / 100 · ${scoreClass(ex.score)}`),
       el('div', { class: 'popup-meta' }, parts.length ? `Top reason: ${parts[0].label}` : ''))).addTo(state.map);
 }
 
@@ -382,11 +438,11 @@ function renderMethod() {
     el('div', { class: 'table-wrap' }, el('table', { class: 'method-table' },
       el('thead', {}, el('tr', {}, el('th', {}, 'Indicator'), el('th', {}, 'What is measured'), el('th', {}, 'Why it matters'), el('th', {}, 'Data'))),
       el('tbody', {}, ...m.indicators.map(d => el('tr', {}, el('td', {}, el('b', {}, d.label)), el('td', {}, d.how), el('td', {}, d.why), el('td', {}, d.source)))))),
-    el('h3', {}, 'Starting weights'),
+    el('h3', {}, 'Recommended weights'),
     el('div', { class: 'table-wrap' }, el('table', { class: 'method-table' },
       el('thead', {}, el('tr', {}, el('th', {}, 'Indicator'), ...presets.map(([, p]) => el('th', {}, p.label)))),
       el('tbody', {}, ...m.indicators.map(d => el('tr', {}, el('td', {}, d.label), ...presets.map(([, p]) => el('td', {}, p.weights[d.id] ? `${p.weights[d.id]}` : '–'))))))),
-    ...presets.map(([, p]) => el('p', { class: 'control-note' }, el('b', {}, `${p.label}: `), p.rationale)),
+    ...presets.map(([, p]) => el('p', { class: 'control-note' }, el('b', {}, `${p.label} (${p.status.toLowerCase()}): `), p.rationale, p.heldout ? ` ${p.heldout}` : '')),
     el('h3', {}, 'Evidence check'),
     el('p', {}, m.method.validation),
     el('h3', {}, 'Limits of version 1'),
@@ -495,7 +551,8 @@ function attachControls() {
   document.querySelectorAll('[data-basemap]').forEach(b => b.addEventListener('click', () => updateBasemap(b.dataset.basemap, true)));
   document.querySelectorAll('[data-projection]').forEach(b => b.addEventListener('click', () => setProjection(b.dataset.projection)));
   $('snapshot-select').addEventListener('change', (e) => { clearSelection(); state.mgr?.setDate(e.target.value); });
-  $('score-threshold').addEventListener('input', (e) => { setText('threshold-label', e.target.value); state.minScore = Number(e.target.value); recompute(); });
+  $('score-threshold').addEventListener('input', (e) => { setText('threshold-label', e.target.value); state.minScore = Number(e.target.value); document.querySelectorAll('[data-best]').forEach(b => b.classList.remove('active')); recompute(); });
+  document.querySelectorAll('[data-best]').forEach(b => b.addEventListener('click', () => setBest(Number(b.dataset.best))));
   $('copy-view').addEventListener('click', async () => {
     if (!state.map) return;
     const c = state.map.getCenter();
@@ -511,11 +568,17 @@ async function start() {
   const manifestP = loadManifest().catch((e) => { warn(`Cannot load data/layers.json: ${e.message}. Serve the folder over HTTP (not file://).`, true); return null; });
   const gridP = ScoreGrid.load().catch((e) => { warn(`Score grid unavailable: ${e.message}`); return null; });
   let map;
-  try { map = await initialiseMap(); }
-  catch (e) {
-    loading(true, 'Map unavailable');
-    warn(`The map could not start (${e.message}). Check your connection, or try a browser with WebGL enabled.`, true);
-    return;
+  try {
+    if (!hasWebGL() || params.has('lite')) throw new Error('WebGL unavailable');
+    map = await initialiseMap();
+  } catch (e) {
+    console.warn('3D map unavailable, switching to the simple 2D map:', e);
+    try { map = await initialiseLiteMap(params.has('lite') ? 'requested with ?lite' : ''); }
+    catch (e2) {
+      loading(true, 'Map unavailable');
+      warn(`The map could not start (${e2.message}). Check your internet connection and reload.`, true);
+      return;
+    }
   }
   loading(true, 'Loading layers…');
   const manifest = await manifestP;
@@ -523,10 +586,16 @@ async function start() {
   state.manifest = manifest;
   if (manifest.defaults.basemap && manifest.defaults.basemap !== state.basemap) updateBasemap(manifest.defaults.basemap);
   if (manifest.warnings.length) warn(`layers.json: ${manifest.warnings.length} entr${manifest.warnings.length === 1 ? 'y' : 'ies'} skipped — see browser console.`);
-  state.mgr = new LayerManager(map, manifest, { onChange: updateAnalytics, onError: (m) => warn(`Layer failed: ${m}`) });
-  renderDates(); buildPanel(); clearFeature();
+  if (!state.lite) {
+    state.mgr = new LayerManager(map, manifest, { onChange: updateAnalytics, onError: (m) => warn(`Layer failed: ${m}`) });
+    renderDates(); buildPanel();
+  } else {
+    $('layer-panel').replaceChildren(el('p', { class: 'control-note' }, 'The satellite data layers need WebGL (graphics acceleration). Switch it on in your browser settings to use them.'));
+    $('snapshot-select').closest('.control-group').hidden = true;
+  }
+  clearFeature();
   addLabelLayers(); updateCopernicusLink();
-  await state.mgr.apply();
+  await state.mgr?.apply();
   state.grid = await gridP;
   if (state.grid) {
     $('score-legend-bar').style.background = rampGradient();
@@ -534,7 +603,7 @@ async function start() {
     renderMethod();
     const m = params.get('mode'); setMode(MODES[m] ? m : 'habitat');
   } else setText('score-note', 'Score grid could not be loaded.');
-  const badge = $('data-status'); badge.classList.add('real'); badge.replaceChildren(el('span', {}, '◆'), ' REAL OPEN DATA · v1 scores');
+  const badge = $('data-status'); badge.classList.add('real'); badge.replaceChildren(el('span', {}, '◆'), ` REAL OPEN DATA${state.lite ? ' · SIMPLE 2D MAP' : ''}`);
   loading(false);
   restoreRevier();
   if (!state.revier) scheduleConditions(true);
