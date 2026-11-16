@@ -2,16 +2,17 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261119a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261119a';
-import { LayerManager } from './js/layers.js?v=20261119a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261119a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261119a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261119a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261119a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261119a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261119a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261119a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261120a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261120a';
+import { LayerManager } from './js/layers.js?v=20261120a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261120a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261120a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261120a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261120a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261120a';
+import { createOrbit } from './js/orbit.js?v=20261120a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261120a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261120a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -54,6 +55,7 @@ async function initialiseMap() {
   // Wait for the style only (not every basemap tile) so panels and layers appear fast on slow links.
   await new Promise((resolve) => (map.isStyleLoaded() ? resolve() : map.once('style.load', () => setTimeout(resolve, 0))));
   state.spinner = createSpinner(map);
+  state.orbit = createOrbit(map, $('orbit'));
   return map;
 }
 
@@ -415,6 +417,71 @@ function tuneWeights(v) {
   warn(`Weights tuned to ${v.cells.length} local sightings. On held-out quarters of the area: AUC ${tuned.toFixed(2)} tuned against ${pilot.toFixed(2)} with the pilot weights. Press "Reset" to go back.`);
 }
 
+/* ---- biodiversity evidence: does the score rise where more species are recorded? ---- */
+const RICH_N = 15, RICH_MIN_BLOCKS = 12;
+/** Group the species records into blocks (1 or 2 km) and estimate species variety per block by rarefaction:
+    the expected number of species in 15 random records. That makes a busy nature reserve and a quiet lane comparable. */
+function richnessBlocks(v) {
+  if (v.blocks) return v.blocks;
+  const g = state.grid; const { cols, rows, cell_m, bbox: [w, s, e, n] } = g.meta;
+  const B = v.B || Math.max(1, Math.round((v.blockM || 1000) / cell_m)); const bc = Math.ceil(cols / B); const m = new Map();
+  for (const [lon, lat, sp] of v.records || []) {
+    const c = Math.floor((lon - w) / (e - w) * cols), r = Math.floor((n - lat) / (n - s) * rows); if (c < 0 || c >= cols || r < 0 || r >= rows) continue;
+    const k = Math.floor(r / B) * bc + Math.floor(c / B); if (!m.has(k)) m.set(k, new Map()); const sp2 = m.get(k); sp2.set(sp, (sp2.get(sp) || 0) + 1);
+  }
+  const blocks = [];
+  for (const [k, sp] of m) {
+    let tot = 0; for (const c of sp.values()) tot += c; if (tot < RICH_N) continue;
+    let E = 0; for (const ni of sp.values()) { let p = 1; if (tot - ni < RICH_N) p = 0; else for (let q = 0; q < RICH_N; q++) p *= (tot - ni - q) / (tot - q); E += 1 - p; }
+    blocks.push({ bx: k % bc, by: Math.floor(k / bc), rich: E, n: tot });
+  }
+  v.B = B; v.blocks = blocks; return blocks;
+}
+function spearman(x, y) {
+  const rank = (a) => { const idx = a.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]); const r = new Array(a.length); for (let i = 0; i < idx.length;) { let j = i; while (j < idx.length && idx[j][0] === idx[i][0]) j++; for (let k = i; k < j; k++) r[idx[k][1]] = (i + j - 1) / 2; i = j; } return r; };
+  const a = rank(x), b = rank(y), n = a.length; const ma = a.reduce((p, c) => p + c, 0) / n, mb = b.reduce((p, c) => p + c, 0) / n;
+  let sab = 0, saa = 0, sbb = 0; for (let i = 0; i < n; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2; }
+  return saa && sbb ? sab / Math.sqrt(saa * sbb) : NaN;
+}
+/** Rank correlation between each block's mean score and its species variety. null when too few blocks qualify. */
+function richnessTest(v) {
+  const g = state.grid; const { cols, rows } = g.meta; const blocks = richnessBlocks(v); const B = v.B; const xs = [], ys = [];
+  for (const b of blocks) {
+    let a = 0, c = 0; for (let r = b.by * B; r < Math.min(rows, b.by * B + B); r++) for (let q = b.bx * B; q < Math.min(cols, b.bx * B + B); q++) { const sc = g.scores[r * cols + q]; if (!Number.isNaN(sc)) { a += sc; c++; } }
+    if (c >= B * B / 2) { xs.push(a / c); ys.push(b.rich); }
+  }
+  return xs.length >= RICH_MIN_BLOCKS ? { rho: spearman(xs, ys), n: xs.length } : { rho: NaN, n: xs.length };
+}
+function renderBiodiversityEvidence(box, v, p) {
+  const t = v ? richnessTest(v) : null; const km = v ? (v.B * state.grid.meta.cell_m / 1000) : 1;
+  if (!t || Number.isNaN(t.rho)) {
+    box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, t ? `${t.n} blocks` : 'not yet')),
+      el('p', { class: 'control-note' }, t ? `Only ${t.n} blocks of ${km} km hold ${RICH_N} or more species records here; ${RICH_MIN_BLOCKS} are needed for a check.` : (p.noValidation || 'No independent data to test this score yet.')));
+    return;
+  }
+  const verdict = t.rho >= 0.4 ? 'good' : t.rho >= 0.25 ? 'fair' : t.rho >= 0.1 ? 'weak' : t.rho > -0.1 ? 'no link' : 'opposite';
+  box.replaceChildren(
+    el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: species variety'), el('span', { class: `tag ${t.rho >= 0.25 ? 'tag-real' : 'tag-custom'}` }, `ρ ${t.rho >= 0 ? '+' : '−'}${Math.abs(t.rho).toFixed(2)} · ${verdict}`)),
+    el('div', { class: 'auc-track' }, el('i', { style: `left:${Math.max(0, Math.min(100, (t.rho + 1) * 50))}%` })),
+    el('div', { class: 'range-label' }, el('span', {}, '−1 opposite'), el('span', {}, '0 no link'), el('span', {}, '+1 perfect')),
+    el('p', { class: 'control-note' }, `Does the score rise where more kinds of plants and animals are recorded? ${t.n} blocks of ${km} km with ${RICH_N} or more records each, from a sample of ${(v.records?.length || v.sampled || 0).toLocaleString()} of ${(v.total || 0).toLocaleString()} GBIF records of all species. Species variety is the expected number of species in ${RICH_N} random records, so busy and quiet places compare fairly. ρ is the rank correlation between block score and variety. Casual records are a rough yardstick: a proper test needs surveys with known effort. Change the weights and watch it move.`));
+}
+/** Biodiversity net gain helper: an indicative habitat-unit baseline for the area on screen. */
+function renderBng() {
+  let box = $('bng-box');
+  if (!box) { box = el('div', { class: 'control-group bng-box', id: 'bng-box' }); $('validation-box').after(box); }
+  const u = state.mode === 'biodiversity' ? state.grid.habitatUnits() : null;
+  box.hidden = !u; if (!u) return;
+  const f = (x) => Math.round(x).toLocaleString();
+  box.replaceChildren(
+    el('div', { class: 'control-label' }, el('label', {}, 'Habitat baseline (net-gain style)'), el('span', { class: 'tag tag-custom' }, 'indicative')),
+    el('div', { class: 'bng-grid' },
+      el('div', {}, el('b', {}, f(u.units)), el('span', {}, 'habitat units now')),
+      el('div', {}, el('b', {}, `+${f(u.units * 0.1)}`), el('span', {}, 'needed for a 10% gain')),
+      el('div', {}, el('b', {}, (u.units / u.area).toFixed(1)), el('span', {}, `units per hectare · ${f(u.area)} ha`))),
+    el('p', { class: 'control-note' }, 'England\'s Biodiversity Net Gain rule asks developments to leave habitats at least 10% better, measured in habitat units (area × distinctiveness × condition), and to keep the gain for 30 years. This card applies the same sum to satellite land cover with condition assumed "moderate". It is a screening figure for comparing places, not the statutory metric, which needs a habitat survey by an ecologist.'));
+}
+
 function updateScoreInsights(st) {
   const g = state.grid; const p = preset();
   const ticked = Object.keys(activeWeights()).length;
@@ -428,7 +495,9 @@ function updateScoreInsights(st) {
   const v = g.meta.validation?.[p.species || ''];
   const box = $('validation-box'); box.hidden = false;
   drawSightings(v && v.cells.length ? v : null);
-  if (!v) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.'));
+  renderBng();
+  if (state.preset === 'biodiversity') renderBiodiversityEvidence(box, g.meta.validation?.biodiversity, p);
+  else if (!v) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.'));
   else if (v.cells.length < 30) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sighting${v.cells.length === 1 ? '' : 's'}`)), el('p', { class: 'control-note' }, p.noValidation || `Only ${v.cells.length} sightings with exact locations: too few to test.`));
   else {
     const hasBg = (v.background_cells?.length || 0) >= MIN_BG;
@@ -567,7 +636,7 @@ async function analyseArea(opts = {}) {
   const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(opts.sizeKm || viewKm())));
   const det = detailFor(sizeKm);
   const g = gridFor(c, sizeKm, det.cellM, det.pxM);
-  const key = `v3:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
+  const key = `v4:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
   const step = (t) => { $('area-progress').hidden = false; setText('area-progress-text', t); setText('map-status', t); };
   try {
     step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`); showAreaBox(g.bbox);
@@ -598,30 +667,32 @@ async function analyseArea(opts = {}) {
     };
     if (r) { r.cached = true; show(r, true); }
     else {
-      const sightP = state.testInputs ? Promise.resolve(state.testSightings || null) : fetchSightings(g.bbox).catch(() => null);
       const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, step);   // testInputs: offline tests only
       step(`Calculating 15 indicators for every ${det.cellM} m square…`);
       await new Promise(res => setTimeout(res, 30));
-      const build = (osm, sightings) => {
-        const out = computeGrid(osm ? { ...inputs, roads: osm.roads, water: osm.water } : inputs, { S: g.S, cellM: det.cellM, pxM: det.pxM, nbRadiusM: 300 });
-        return { t: Date.now(), cellM: det.cellM, packed: packLayers(out.layers, out.cols * out.rows), out: { cols: out.cols, rows: out.rows, bbox: out.bbox, norm: out.norm },
-          scene: inputs.scene, osmError: osm ? osm.osmError : (inputs.osm ? 'pending' : inputs.osmError || null), hasRoads: !!(osm ? osm.roads : inputs.roads), sightings };
+      // The satellite data is enough for a first map. Roads and rivers (OpenStreetMap), sightings and species records (GBIF)
+      // come from slower public servers: each one refreshes the same area when it arrives.
+      const got = { osm: null, sightings: null, richness: null }; let grid = null, gridOsm;
+      const build = () => {
+        if (!grid || gridOsm !== got.osm) { grid = computeGrid(got.osm ? { ...inputs, roads: got.osm.roads, water: got.osm.water } : inputs, { S: g.S, cellM: det.cellM, pxM: det.pxM, nbRadiusM: 300 }); gridOsm = got.osm; }
+        return { t: Date.now(), cellM: det.cellM, packed: packLayers(grid.layers, grid.cols * grid.rows), out: { cols: grid.cols, rows: grid.rows, bbox: grid.bbox, norm: grid.norm },
+          scene: inputs.scene, osmError: got.osm ? got.osm.osmError : (inputs.osm ? 'pending' : inputs.osmError || null), hasRoads: !!(got.osm ? got.osm.roads : inputs.roads), sightings: got.sightings, richness: got.richness };
       };
-      const sightings = await sightP;
-      show(build(null, sightings), true);
-      // Roads and rivers arrive later (public OpenStreetMap servers are slow): refresh the same area when they do.
-      inputs.osm?.then((osm) => {
-        const res = build(osm, sightings);
-        if (!res.osmError) cachePut(key, res);
-        if (state.area?.key === key) show(res, false);
-      });
+      const arrive = (k) => (v) => { if (!v) return; got[k] = v; const res = build(); if (got.osm && !res.osmError && got.sightings) cachePut(key, res); if (state.area?.key === key) show(res, false); };
+      if (state.testInputs) { got.sightings = state.testSightings || null; got.richness = state.testRichness || null; }
+      show(build(), true);
+      if (!state.testInputs) {
+        inputs.osm?.then(arrive('osm'));
+        // one after the other, to stay polite to GBIF's free service
+        fetchSightings(g.bbox).then(arrive('sightings')).catch(() => {}).then(() => fetchRichness(g.bbox)).then(arrive('richness')).catch(() => {});
+      }
     }
   } catch (e) {
     warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`); if (!state.area) showAreaBox(null);
   } finally { loading(false); $('area-progress').hidden = true; analysing = false; btn.disabled = false; }
 }
 function buildAreaMeta(pm, r, c, sizeKm) {
-  const { out, scene, sightings } = r;
+  const { out, scene, sightings, richness } = r;
   const toCells = (pts) => pts.map(p => { const col = Math.floor((p.lon - out.bbox[0]) / (out.bbox[2] - out.bbox[0]) * out.cols), row = Math.floor((out.bbox[3] - p.lat) / (out.bbox[3] - out.bbox[1]) * out.rows); return col >= 0 && col < out.cols && row >= 0 && row < out.rows ? row * out.cols + col : -1; }).filter(i => i >= 0);
   const d = new Date(scene.date + 'T12:00:00Z'); const dLong = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   const redate = (x) => JSON.parse(JSON.stringify(x).replaceAll('24 Jul 2026', dLong).replaceAll('(24 Jul)', `(${dLong.slice(0, -5)})`).replaceAll('One clear Sentinel-2 date', 'One clear Sentinel-2 date for this area'));
@@ -632,21 +703,23 @@ function buildAreaMeta(pm, r, c, sizeKm) {
   const check = (id, rows, what, detail) => {
     const cells = toCells(rows); const p = presets[id];
     validation[id] = { cells, points: rows.map(x => [x.lon, x.lat]), background_cells: toCells(sightings.others), years: years(rows), what, detail, independent: true };
-    p.status = cells.length >= 30 ? 'Pilot weights · tested here' : 'Pilot weights · untested here';
+    const origin = id === 'roe_deer' ? 'Pilot weights' : 'Literature weights';
+    p.status = cells.length >= 30 ? `${origin} · tested here` : `${origin} · untested here`;
     if (cells.length < 30) p.noValidation = `Only ${cells.length} ${what} record${cells.length === 1 ? '' : 's'} with exact locations in GBIF for this area: too few to test here.`;
   };
   presets.roe_deer.label = 'Deer';
   presets.roe_deer.heldout = `These weights were fitted to roe deer in the Freiburg pilot region (AUC ${pilotAuc} on unseen blocks).`;
-  presets.roe_deer.status = presets.wild_boar.status = 'Pilot weights · untested here';
+  presets.roe_deer.status = 'Pilot weights · untested here'; presets.wild_boar.status = 'Literature weights · untested here';
   if (sightings) {
     const top = sightings.deerNames?.slice(0, 2).map(x => x.name).join(' and ');
     check('roe_deer', sightings.deer, 'deer', top ? `mostly ${top}` : '');
     check('wild_boar', sightings.boar, 'wild boar', '');
   }
-  presets.biodiversity.status = 'Literature weights · untested';
-  presets.biodiversity.noValidation = 'Not yet tested. A fair test needs wildlife surveys with known effort (for example bird-atlas squares or camera-trap grids), not casual sightings. That is the next step.';
+  presets.biodiversity.status = (richness?.records?.length || 0) >= 300 ? 'Nature indicators · tested here' : 'Nature indicators · untested here';
+  if (richness?.records?.length) validation.biodiversity = { records: richness.records, total: richness.total, blockM: sizeKm > AREA.fineKm ? 2000 : 1000 };
+  presets.biodiversity.noValidation = 'Waiting for species records from GBIF, or too few exist here for a check. A proper test needs wildlife surveys with known effort (for example bird-atlas squares).';
   const label = `${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}`;
-  return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.3 · analysed in your browser', region: label, region_short: 'Your analysed area',
+  return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.5 · analysed in your browser', region: label, region_short: 'Your analysed area',
     bbox: out.bbox, cols: out.cols, rows: out.rows, cell_m: r.cellM || 50, layers: LAYER_ORDER, presets, validation, evidence: {},
     dates: { ...pm.dates, sentinel2: scene.date, sentinel2_scene: scene.id, osm: new Date(r.t).toISOString().slice(0, 10) }, normalisation: out.norm };
 }

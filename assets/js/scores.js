@@ -5,7 +5,7 @@
        score = Σ (weight × indicator) / Σ weight            (ticked indicators only)
    and draws the result as an image overlay (blue = low, red = high). */
 
-import { el } from './ui.js?v=20261119a';
+import { el } from './ui.js?v=20261120a';
 
 export const SCORE_RAMP = [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']];
 const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -35,12 +35,32 @@ export class ScoreGrid {
     this.n = meta.cols * meta.rows;
     this.layers = {};
     meta.layers.forEach((id, i) => { this.layers[id] = bytes.subarray(i * this.n, (i + 1) * this.n); });
+    if (!this.layers.distinct && this.layers.raw_tree) this.layers.distinct = ScoreGrid.distinctiveness(this.layers, this.n);
     this.ind = Object.fromEntries(meta.indicators.map(d => [d.id, d]));
     this.scores = new Float32Array(this.n);
     this.canvas = document.createElement('canvas');
     this.canvas.width = meta.cols; this.canvas.height = meta.rows;
   }
 
+  /** Habitat distinctiveness per square, 0–100 (4 on the biodiversity-metric scale → 100), from the land-cover shares.
+      Bands: trees 4, grass / shrub / wetland 3, cropland 2, built-up 0, water and bare ground 3. Indicative only. */
+  static distinctiveness(L, n) {
+    const out = new Uint8Array(n).fill(255);
+    for (let i = 0; i < n; i++) {
+      const t = L.raw_tree[i], o = L.raw_open[i], c = L.raw_crop[i], b = L.raw_built[i];
+      if (t === 255 || o === 255 || c === 255 || b === 255) continue;
+      const other = Math.max(0, 100 - t - o - b);
+      out[i] = Math.round(Math.min(4, (t * 4 + Math.max(0, o - c) * 3 + c * 2 + other * 3) / 100) * 25);
+    }
+    return out;
+  }
+  /** Indicative habitat units (biodiversity net gain style): hectares × distinctiveness × condition, condition assumed moderate (2). */
+  habitatUnits() {
+    const d = this.layers.distinct; if (!d) return null;
+    const ha = (this.meta.cell_m / 100) ** 2; let units = 0, area = 0;
+    for (let i = 0; i < this.n; i++) if (d[i] !== 255) { units += ha * (d[i] / 25) * 2; area += ha; }
+    return area ? { units, area } : null;
+  }
   get bbox() { return this.meta.bbox; }
   corners() { const [w, s, e, n] = this.meta.bbox; return [[w, n], [e, n], [e, s], [w, s]]; }
 

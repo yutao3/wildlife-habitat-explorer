@@ -1,5 +1,5 @@
 {
- "version": "WildScope v1.1",
+ "version": "WildScope v1.5",
  "created": "2026-11-16",
  "region": "Freiburg & western Black Forest (DE)",
  "region_short": "Freiburg & Black Forest (DE)",
@@ -147,6 +147,14 @@
    "source": "OpenStreetMap waterways + ESA WorldCover"
   },
   {
+   "id": "distinct",
+   "label": "Habitat distinctiveness",
+   "group": "Biodiversity",
+   "how": "Each land-cover type gets the distinctiveness band used in England's biodiversity metric (0 to 8): tree cover 4, grass, shrub and wetland 3, cropland 2, built-up 0, water and bare ground 3. The square's area-weighted average is scaled so that 4 → 100.",
+   "why": "The biodiversity net gain metric values a habitat first by its type: woodland and semi-natural land count for more than arable fields or sealed ground.",
+   "source": "ESA WorldCover 2021, bands after the statutory biodiversity metric (indicative)"
+  },
+  {
    "id": "diversity",
    "group": "Biodiversity",
    "label": "Habitat variety",
@@ -270,18 +278,18 @@
    "label": "Biodiversity potential",
    "species": null,
    "mode": "biodiversity",
-   "status": "Literature weights, not yet testable",
+   "status": "Nature indicators · untested",
    "weights": {
-    "diversity": 30,
-    "natural": 25,
-    "spectral": 20,
-    "towns_far": 10,
-    "roads_far": 5,
-    "water": 10
+    "distinct": 25,
+    "diversity": 25,
+    "natural": 20,
+    "spectral": 15,
+    "water": 10,
+    "woodland": 5
    },
-   "rationale": "Many habitat types close together, a high share of semi-natural land, varied vegetation, little disturbance and water. A proxy for how much life a place can support, not a species count.",
-   "description": "Biodiversity potential v1.1: habitat variety, natural cover, spectral diversity, distance from towns and roads, water.",
-   "noValidation": "Not yet tested. Protected areas cover 37% of the region (including nature parks) and score no higher than elsewhere (AUC 0.49), so they are no useful test. Next: field surveys or effort-corrected species counts."
+   "rationale": "Nature only: how valuable the habitat types are (distinctiveness, as in the biodiversity net gain metric), how many types are mixed, how much is semi-natural, how varied the vegetation is, plus water and woodland. Distance from towns and roads is left out by default so the map shows the land itself; tick them under \"More indicators\" to add disturbance. A proxy for how much life a place can support, not a species count.",
+   "description": "Biodiversity potential from nature indicators only: habitat distinctiveness, variety, natural cover, plant variety, water and woodland.",
+   "noValidation": "Not yet tested in the pilot region. Analysed areas are checked live against the variety of species recorded there (GBIF). A proper test needs surveys with known effort."
   }
  },
  "validation": {

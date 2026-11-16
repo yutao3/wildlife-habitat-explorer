@@ -13,9 +13,9 @@
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="preload" href="./data/scores/grid.bin" as="fetch" crossorigin>
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261119a" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261120a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261119a"></script>
+  <script type="module" src="./assets/app.js?v=20261120a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -42,6 +42,7 @@
     <div id="map-container">
       <canvas id="starfield" aria-hidden="true"></canvas>
       <div id="map" role="application" aria-label="3D globe and map with habitat and satellite layers"></div>
+      <canvas id="orbit" aria-hidden="true"></canvas>
       <div class="map-loading" id="map-loading" role="status"><span class="spinner" aria-hidden="true"></span><span id="map-loading-text">Loading globe…</span></div>
 
       <div class="map-top">

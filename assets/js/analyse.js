@@ -227,14 +227,27 @@ export function computeGrid(inputs, { S, cellM, pxM, nbRadiusM = 300 }) {
 /** GBIF records for a live evidence check: deer (family Cervidae), wild boar / feral pig, and all other
     mammals as the "where do observers go" background. Locations within 250 m only. */
 export const GBIF_KEYS = { deer: 5298, boar: 7705930, mammals: 359 };
+const GBIF = 'https://api.gbif.org/v1/occurrence/search';
+const gbifBox = (bbox) => `${GBIF}?decimalLatitude=${bbox[1]},${bbox[3]}&decimalLongitude=${bbox[0]},${bbox[2]}&hasCoordinate=true&hasGeospatialIssue=false&coordinateUncertaintyInMeters=0,250&basisOfRecord=HUMAN_OBSERVATION&limit=300`;
+/** One GBIF page, with a timeout so a slow day at GBIF never freezes the app. */
+async function gbifPage(url) { const r = await fetch(url, { signal: AbortSignal.timeout(20000) }); if (!r.ok) throw new Error(`GBIF HTTP ${r.status}`); return r.json(); }
 export async function fetchSightings(bbox, maxPages = 4) {
-  const G = 'https://api.gbif.org/v1/occurrence/search';
-  const base = `${G}?decimalLatitude=${bbox[1]},${bbox[3]}&decimalLongitude=${bbox[0]},${bbox[2]}&hasCoordinate=true&hasGeospatialIssue=false&coordinateUncertaintyInMeters=0,250&basisOfRecord=HUMAN_OBSERVATION&limit=300`;
-  const get = async (q) => { const out = []; for (let p = 0; p < maxPages; p++) { const j = await (await fetch(`${base}${q}&offset=${p * 300}`)).json(); out.push(...j.results.map(r => ({ lon: r.decimalLongitude, lat: r.decimalLatitude, year: r.year, sp: r.speciesKey, fam: r.familyKey, name: r.species }))); if (j.endOfRecords) break; } return out; };
+  const base = gbifBox(bbox);
+  const get = async (q) => { const out = []; for (let p = 0; p < maxPages; p++) { const j = await gbifPage(`${base}${q}&offset=${p * 300}`); out.push(...j.results.map(r => ({ lon: r.decimalLongitude, lat: r.decimalLatitude, year: r.year, sp: r.speciesKey, fam: r.familyKey, name: r.species }))); if (j.endOfRecords) break; } return out; };
   const [deer, boar, mammals] = await Promise.all([get(`&taxonKey=${GBIF_KEYS.deer}`), get(`&taxonKey=${GBIF_KEYS.boar}`), get(`&classKey=${GBIF_KEYS.mammals}`)]);
   const names = {}; for (const r of deer) if (r.name) names[r.name] = (names[r.name] || 0) + 1;
   const deerNames = Object.entries(names).sort((a, b) => b[1] - a[1]).map(([n, c]) => ({ name: n, n: c }));
   return { deer, boar, deerNames, others: mammals.filter(r => r.fam !== GBIF_KEYS.deer && r.sp !== GBIF_KEYS.boar) };
+}
+
+/** A sample of records of ALL species (plants, birds, insects…) for the biodiversity check: up to pages × 300 records,
+    spread evenly through GBIF's result list so one prolific observer or survey does not fill the sample. */
+export async function fetchRichness(bbox, pages = 6) {
+  const base = gbifBox(bbox); const rows = (j) => j.results.filter(r => r.speciesKey).map(r => [+r.decimalLongitude.toFixed(5), +r.decimalLatitude.toFixed(5), r.speciesKey]);
+  const first = await gbifPage(`${base}&offset=0`); const total = Math.min(first.count || 0, 99000); const records = rows(first);
+  const offs = [...new Set(Array.from({ length: pages - 1 }, (_, i) => Math.floor(total * (i + 1) / pages / 300) * 300))].filter(o => o > 0);
+  for (let i = 0; i < offs.length; i += 2) { const js = await Promise.all(offs.slice(i, i + 2).map(o => gbifPage(`${base}&offset=${o}`).catch(() => null))); for (const j of js) if (j) records.push(...rows(j)); }
+  return { total: first.count || 0, records };
 }
 
 export function packLayers(L, n) {

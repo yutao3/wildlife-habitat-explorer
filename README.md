@@ -15,6 +15,14 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.4: demo polish (Nov 2026).** A large action dock at the bottom of the map (**Try a place · Analyse this area · Pilot region**) with a live hint of what will be scored; the analysed box is outlined and real sightings are drawn as dots; detail adapts to the area (up to 12 km at 50 m, 13–24 km at 100 m); progress shows in a small pill instead of covering the map; the opacity slider no longer overflows its box. Measured on the public site on 16 Nov 2026: first scores for a new 10 × 10 km area (New Forest, UK) in 2.7 s; the pilot weights scored AUC 0.62 there against 866 deer sightings.
 
+**v1.5: night-sky globe, nature-first biodiversity, net-gain baseline (Nov 2026).**
+- **Look:** dark glass interface; a richer night sky (Milky Way band, coloured and twinkling stars); a Sentinel-2 satellite circling the globe on a to-scale orbit (786 km up, near-polar) while the whole Earth is in view (`assets/js/orbit.js`).
+- **Biodiversity is now nature-only:** habitat distinctiveness 25, habitat variety 25, natural cover 20, plant variety 15, water 10, woodland 5. Distance from towns and roads is optional, not default.
+- **Habitat distinctiveness** is a new indicator: each land-cover type gets the band used in England's statutory biodiversity metric (trees 4, grass/shrub/wetland 3, cropland 2, built-up 0), derived in the browser from the stored land-cover shares.
+- **Habitat baseline card (Biodiversity Net Gain style):** indicative habitat units for the area on screen (hectares × distinctiveness × condition, condition assumed moderate) and what a 10% gain would be. A screening figure, not the statutory metric.
+- **Biodiversity evidence check:** for analysed areas the site samples GBIF records of all species, estimates species variety per 1–2 km block by rarefaction (expected species in 15 records) and reports the rank correlation with the score. The pilot region has not been run through it yet.
+- **Sturdier:** only the satellite data blocks the first map; roads, sightings and species records each refresh the area when they arrive, and every GBIF request has a 20 s timeout.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

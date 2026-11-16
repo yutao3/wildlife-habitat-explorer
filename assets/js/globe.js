@@ -67,9 +67,12 @@ export function setBasemap(map, which) {
   }
 }
 
-/** Draw a static starfield on a canvas that sits behind the (transparent) map canvas. */
+/** Draw the night sky behind the (transparent) map canvas: a deep-space gradient, a faint Milky Way band,
+    about a thousand stars in realistic colours, and a few bright ones that twinkle slowly. */
 export function drawStarfield(canvas) {
   if (!canvas) return;
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let bright = [], base = null, raf = 0;
   const draw = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -77,19 +80,35 @@ export function drawStarfield(canvas) {
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
     const g = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.75);
-    g.addColorStop(0, '#0b1830'); g.addColorStop(1, '#02040a');
+    g.addColorStop(0, '#081226'); g.addColorStop(0.55, '#040914'); g.addColorStop(1, '#010206');
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     let seed = 42; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const n = Math.round((w * h) / 1400);
+    // Milky Way: a soft diagonal band of haze and extra faint stars
+    ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(-0.5);
+    const band = ctx.createLinearGradient(0, -h * 0.28, 0, h * 0.28);
+    band.addColorStop(0, 'rgba(120,150,220,0)'); band.addColorStop(0.5, 'rgba(140,165,230,0.10)'); band.addColorStop(1, 'rgba(120,150,220,0)');
+    ctx.fillStyle = band; ctx.fillRect(-w, -h * 0.28, w * 2, h * 0.56);
+    for (let i = 0; i < Math.round(w * h / 900); i++) { const y = (rnd() + rnd() + rnd() - 1.5) * h * 0.16; ctx.globalAlpha = 0.12 + rnd() * 0.3; ctx.fillStyle = '#dfe8ff'; ctx.fillRect((rnd() - 0.5) * w * 2, y, 0.9, 0.9); }
+    ctx.restore();
+    const COLORS = ['#ffffff', '#ffffff', '#ffffff', '#cfe3ff', '#aecbff', '#fff1d6', '#ffd9b0'];
+    const n = Math.round((w * h) / 1100); bright = [];
     for (let i = 0; i < n; i++) {
-      const r = rnd() < 0.92 ? rnd() * 0.9 + 0.2 : rnd() * 1.3 + 0.9;
-      ctx.globalAlpha = 0.35 + rnd() * 0.65;
-      ctx.fillStyle = rnd() < 0.15 ? '#cfe3ff' : '#ffffff';
-      ctx.beginPath(); ctx.arc(rnd() * w, rnd() * h, r, 0, Math.PI * 2); ctx.fill();
+      const big = rnd() > 0.94; const r = big ? rnd() * 1.2 + 0.9 : rnd() * 0.8 + 0.2; const x = rnd() * w, y = rnd() * h; const a = 0.3 + rnd() * 0.7; const col = COLORS[Math.floor(rnd() * COLORS.length)];
+      ctx.globalAlpha = a; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      if (big && bright.length < 46) bright.push({ x, y, r, col, ph: rnd() * 6.28, sp: 0.6 + rnd() * 1.2 });
     }
     ctx.globalAlpha = 1;
+    base = ctx.getImageData(0, 0, canvas.width, canvas.height);
   };
-  draw();
+  const twinkle = (now) => {
+    raf = requestAnimationFrame(twinkle);
+    if (!base || document.hidden || document.body.dataset.projection !== 'globe' || Math.floor(now / 90) === twinkle.last) return; twinkle.last = Math.floor(now / 90);
+    const ctx = canvas.getContext('2d'); const dpr = canvas.width / canvas.clientWidth;
+    for (const s of bright) ctx.putImageData(base, 0, 0, Math.round(s.x * dpr) - 9, Math.round(s.y * dpr) - 9, 18, 18);   // repaint only the few twinkling stars
+    for (const s of bright) { const k = 0.5 + 0.5 * Math.sin(now / 1000 * s.sp + s.ph); ctx.globalAlpha = 0.25 + 0.6 * k; ctx.fillStyle = s.col; ctx.beginPath(); ctx.arc(s.x, s.y, Math.min(3.6, s.r * (1.1 + 0.9 * k)), 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  };
+  draw(); if (!reduced) raf = requestAnimationFrame(twinkle);
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(draw, 150); });
 }
 
@@ -99,8 +118,8 @@ export function applyProjection(map, type) {
     map.setProjection({ type });
     if (type === 'globe' && map.setSky) {
       map.setSky({
-        'sky-color': '#0b1a2b', 'horizon-color': '#3d7bd6', 'fog-color': '#a9c9ff',
-        'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.9,
+        'sky-color': '#050d1c', 'horizon-color': '#4f9bff', 'fog-color': '#bfe0ff',
+        'sky-horizon-blend': 0.75, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.85,
         'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0],
       });
     }
