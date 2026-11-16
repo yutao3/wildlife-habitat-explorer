@@ -1,15 +1,19 @@
-/* app.js — SAIIL Wildlife Habitat Explorer bootstrap.
-   Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels.
-   Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor } from './js/globe.js?v=20261028c';
-import { loadManifest, allDates } from './js/manifest.js?v=20261028c';
-import { LayerManager } from './js/layers.js?v=20261028c';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderHistogram, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261028c';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261028c';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261028c';
+/* app.js — WildScope (SAIIL) bootstrap.
+   Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
+   plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
+   Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor } from './js/globe.js?v=20261117a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261117a';
+import { LayerManager } from './js/layers.js?v=20261117a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261117a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261117a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261117a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261117a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261117a';
 
 const params = new URLSearchParams(location.search);
-const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null };
+const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
+  mode: 'habitat', preset: 'roe_deer', grid: null, weights: {}, minScore: 0, scoreOn: true, scoreOpacity: 0.75 };
 
 /* ---------- messages & loading ---------- */
 let alertTimer;
@@ -48,26 +52,25 @@ async function initialiseMap() {
 
 function onMapClick(e) {
   const { map, mgr } = state; if (!mgr) return;
-  const ids = mgr.queryLayerIds(); if (!ids.length) return;
-  const hit = map.queryRenderedFeatures(e.point, { layers: ids })[0];
   condPinned = e.lngLat; updateConditions(e.lngLat, 'Clicked spot');
   setTimeout(() => { condPinned = null; }, 30000);   // map centre takes over again after 30 s of panning
-  if (!hit) { state.popup?.remove(); mgr.highlight(null); clearFeature(); return; }
+  const ids = mgr.queryLayerIds();
+  const hit = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids })[0] : null;
+  if (!hit) {
+    const i = state.grid && state.scoreOn ? state.grid.cellAt(e.lngLat.lng, e.lngLat.lat) : -1;
+    if (i >= 0 && !Number.isNaN(state.grid.scores[i])) { selectCell(i, e.lngLat); return; }
+    state.popup?.remove(); mgr.highlight(null); highlightCell(-1); clearFeature(); return;
+  }
+  highlightCell(-1);
   const layerId = hit.layer.id.replace(/^lyr-/, '').replace(/-(fill|circle|pin)$/, '');
   const layer = mgr.get(layerId); const st = mgr.status(layerId);
-  // Use the original GeoJSON feature (full-precision geometry) when available.
   const original = st.data?.features?.find(f => hit.properties.id !== undefined && f.properties?.id === hit.properties.id);
   const feature = original || { type: 'Feature', geometry: hit.geometry, properties: hit.properties };
   const props = feature.properties || {};
-  const synthetic = props.synthetic === true || props.synthetic === 'true' || (st.version?.status || layer.status) === 'synthetic';
   state.selected = { feature, layer, version: st.version };
   mgr.highlight(feature);
-  renderFeature({ props, geometry: feature.geometry, layer, version: st.version, lngLat: e.lngLat, synthetic });
-  const s = layer.style || {}; const score = s.scoreField ? props[s.scoreField] : undefined;
-  const content = el('div', { class: 'popup' },
-    el('b', {}, props.name || props.id || layer.title),
-    score !== undefined ? el('div', { class: 'popup-score' }, el('i', { class: 'chip', style: `background:${rampColor(s.ramp, Number(score))}` }), `Score ${score}`) : el('div', {}, props.change_type || props.water_type || layer.title),
-    el('div', { class: 'popup-meta' }, `${formatDate(st.version?.date)}${synthetic ? ' · SYNTHETIC' : ''}`));
+  renderFeature({ props, geometry: feature.geometry, layer, version: st.version, lngLat: e.lngLat, synthetic: false });
+  const content = el('div', { class: 'popup' }, el('b', {}, props.name || props.NAME || props.id || layer.title), el('div', { class: 'popup-meta' }, layer.title));
   state.popup?.remove();
   state.popup = new maplibregl.Popup({ closeButton: true, maxWidth: '240px', offset: 6 }).setLngLat(e.lngLat).setDOMContent(content).addTo(map);
 }
@@ -142,7 +145,7 @@ function updateCopernicusLink() {
 }
 
 /* ---------- views ---------- */
-const regionBounds = () => state.manifest?.region.bounds || [7.55, 47.67, 8.85, 48.56];
+const regionBounds = () => state.grid?.bbox || state.manifest?.region.bounds || [7.67, 47.85, 8.27, 48.25];
 const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 /** Space taken by the floating side panels, so the map centres the region in the visible gap. */
 function panelPadding() {
@@ -177,27 +180,7 @@ function updateBasemap(which, fromUser) {
   document.querySelectorAll('[data-basemap]').forEach(b => { const a = b.dataset.basemap === which; b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
 }
 
-/* ---------- manifest-driven controls ---------- */
-function speciesLabel(id) { return state.manifest.species.find(s => s.id === id)?.label || (id ? id.replace(/_/g, ' ') : 'All species'); }
-
-function renderSpecies() {
-  const target = $('species-list'); const items = state.manifest.species;
-  target.replaceChildren();
-  if (!items.length) { target.closest('.control-group').hidden = true; return; }
-  for (const item of items) {
-    target.append(el('button', { type: 'button', class: 'seg', 'data-species': item.id, onclick: () => selectSpecies(item.id) }, item.label));
-  }
-  markSpecies();
-}
-function markSpecies() {
-  document.querySelectorAll('[data-species]').forEach(b => { const a = b.dataset.species === state.mgr.species; b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
-}
-async function selectSpecies(id) {
-  const { mgr } = state; mgr.species = id; markSpecies();
-  renderDates(); buildPanel(); clearSelection();
-  await mgr.apply();
-}
-
+/* ---------- manifest-driven data layers ---------- */
 function renderDates() {
   const { mgr } = state; const dates = allDates(mgr.layersForSpecies());
   const sel = $('snapshot-select');
@@ -206,103 +189,221 @@ function renderDates() {
   sel.value = mgr.date || '';
   setText('archive-tag', `${dates.length} date${dates.length === 1 ? '' : 's'} archived`);
 }
-
 function buildPanel() {
   buildLayerPanel($('layer-panel'), state.mgr, {
-    onToggle: (id, on) => { state.mgr.setVisible(id, on); if (!on && state.selected?.layer.id === id) clearSelection(); },
+    onToggle: (id, on) => { state.mgr.setVisible(id, on); if (!on && state.selected?.layer?.id === id) clearSelection(); },
     onOpacity: (id, o) => state.mgr.setOpacity(id, o),
     onPin: (id, date) => { state.mgr.setPinned(id, date); },
   });
 }
+function clearSelection() { state.popup?.remove(); state.mgr?.highlight(null); highlightCell(-1); state.selected = null; clearFeature(); }
 
-function clearSelection() { state.popup?.remove(); state.mgr?.highlight(null); state.selected = null; clearFeature(); }
-
-/* ---------- analytics / KPIs / provenance ---------- */
 function updateAnalytics() {
-  const { mgr, manifest } = state; if (!mgr) return;
+  const { mgr } = state; if (!mgr) return;
   const allD = allDates(mgr.layersForSpecies());
   refreshLayerPanel($('layer-panel'), mgr, mgr.date === allD[0] ? null : mgr.date);
-  const threshold = mgr.minScore;
-  setText('threshold-label', threshold);
-  const scored = mgr.features({ scoredOnly: true });
-  const primary = mgr.primaryLayer();
-  const scoredLayer = mgr.layersForSpecies().find(l => mgr.scored(l) && mgr.isActive(l));
-  const ps = scoredLayer?.style || {};
-  const { shown, total } = renderHistogram($('distribution-bars'), scored, { threshold, ramp: ps.ramp, field: ps.scoreField || 'score', min: ps.min ?? 0, max: ps.max ?? 100 });
-  setText('insight-count', scoredLayer ? shown : '—');
-  setText('insight-sub', scoredLayer ? 'habitat polygons at or above the minimum score' : 'No habitat score layer yet. It arrives with SAIIL Sentinel-2 analytics. Use "Preview habitat score model" (left) to see how it will work.');
-  $('mini-track-fill').style.width = `${total ? Math.round((100 * shown) / total) : 0}%`;
-  $('score-section').classList.toggle('inactive', !scoredLayer);
-  syncDemoButton();
-
-  // KPIs
   const layers = mgr.layersForSpecies();
-  setText('metric-products', layers.length);
-  setText('metric-products-sub', `${layers.reduce((s, l) => s + l.versions.length, 0)} dated outputs in archive`);
-  const dates = allDates(layers);
-  setText('metric-latest', `${formatDate(mgr.date)}${mgr.date === dates[0] ? '' : ' (archive)'}`);
-  setText('metric-latest-sub', mgr.date === dates[0] ? 'Latest available output' : `Archive view · latest ${formatDate(dates[0])}`);
-  setText('metric-region', manifest.region.name);
-
-  // Provenance from the primary layer's active version
-  const v = primary ? (mgr.status(primary.id).version || primary.versions[0]) : null;
-  setText('meta-layer', primary?.title || '—');
-  setText('meta-species', primary?.species ? speciesLabel(primary.species) : speciesLabel(mgr.species));
-  setText('meta-date', formatDate(v?.date));
-  setText('meta-status', v?.status || primary?.status || manifest.status || 'Unspecified');
-  setText('meta-resolution', v?.resolution || primary?.resolution || 'Not specified');
-  setText('meta-coverage', manifest.region.name);
-  setText('meta-source', v?.source || primary?.source || '—');
-  setText('meta-description', v?.description || primary?.description || '');
-  setText('dataset-description', mgr.date === dates[0] ? 'Showing the newest data. Pick an older date to see archived outputs (e.g. Sentinel-2 from earlier years).' : `Archive view: each layer shows its newest output on or before ${formatDate(mgr.date)}.`);
-  setText('active-product', `${speciesLabel(mgr.species)} · ${formatDate(mgr.date)}`);
-  const anySynthetic = layers.some(l => mgr.isActive(l) && l.status === 'synthetic');
-  const badge = $('data-status'); badge.classList.toggle('real', !anySynthetic);
-  badge.replaceChildren(el('span', {}, '◆'), anySynthetic ? ' SYNTHETIC LAYER ON — demo habitat scores and geometries are fabricated' : ' REAL OPEN DATA · live conditions');
   const loadingAny = layers.some(l => mgr.status(l.id).loading);
-  const n = mgr.features().length;
-  setText('map-status', loadingAny ? 'Loading layers…' : `${layers.filter(l => mgr.isActive(l)).length} layers on · ${n} features loaded · ${formatDate(mgr.date)}`);
+  const on = layers.filter(l => mgr.isActive(l)).length;
+  setText('map-status', loadingAny ? 'Loading layers…' : `${state.grid ? 'Score grid on · ' : ''}${on} data layer${on === 1 ? '' : 's'} on`);
+  setText('dataset-description', mgr.date === allD[0] ? 'Newest data shown. Pick an older date for archived layers (e.g. Sentinel-2 mosaics from earlier years).' : `Archive view: each layer shows its newest output on or before ${formatDate(mgr.date)}.`);
 }
 
-/* ---------- export ---------- */
-function downloadVisible() {
-  const { mgr, map } = state; if (!mgr) return;
-  const b = map?.getBounds();
-  const overlaps = (f) => {
-    if (!b) return true;
-    const xs = [], ys = [];
-    const walk = (c) => { if (typeof c?.[0] === 'number') { xs.push(c[0]); ys.push(c[1]); } else if (Array.isArray(c)) c.forEach(walk); };
-    walk(f.geometry?.coordinates); if (!xs.length) return false;
-    return Math.min(...xs) <= b.getEast() && Math.max(...xs) >= b.getWest() && Math.min(...ys) <= b.getNorth() && Math.max(...ys) >= b.getSouth();
-  };
-  const features = mgr.features({ applyFilter: true }).filter(({ f }) => overlaps(f))
-    .map(({ f, layer, version }) => ({ ...f, properties: { ...f.properties, layer_id: layer.id, layer_date: version?.date } }));
-  const out = { type: 'FeatureCollection', name: `saiil-visible-${mgr.date}`, features,
-    metadata: { exported: new Date().toISOString(), date: mgr.date, species: mgr.species, min_score: mgr.minScore,
-      status: state.manifest.status, notice: 'Filtered source geometries (not clipped to the view). Raster layers not included. SYNTHETIC demo data.' } };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/geo+json' }));
-  const a = el('a', { href: url, download: `saiil-visible-${mgr.species || 'all'}-${mgr.date}.geojson` });
-  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  setText('map-status', `Downloaded ${features.length} features in view`);
+/* ---------- modes: Habitat · Biodiversity · Hunting ---------- */
+const MODES = {
+  habitat: { lead: 'Where can a species live? A 0–100 habitat score for every 200 m square.', title: 'Habitat score', presets: ['roe_deer', 'roe_deer_data', 'wild_boar'], right: 'Score insights' },
+  biodiversity: { lead: 'How varied and natural is the landscape? A biodiversity potential score for every 200 m square.', title: 'Biodiversity potential', presets: ['biodiversity'], right: 'Score insights' },
+  hunting: { lead: 'Good habitat plus the right moment: habitat score, live wind and light, and your own hunting ground.', title: 'Habitat score for hunting', presets: ['roe_deer', 'roe_deer_data', 'wild_boar'], right: 'Conditions & insights' },
+};
+function setMode(mode) {
+  const m = MODES[mode] || MODES.habitat; state.mode = mode;
+  $('app').dataset.mode = mode;
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+  setText('mode-lead', m.lead); setText('score-title', m.title); setText('right-title', m.right);
+  if (!m.presets.includes(state.preset)) state.preset = mode === 'biodiversity' ? 'biodiversity' : (state.lastSpecies || 'roe_deer');
+  if (mode === 'hunting') scheduleConditions(true);
+  try { const u = new URL(location.href); u.searchParams.set('mode', mode); history.replaceState(null, '', u); } catch { /* ignore */ }
+  renderPresets(); renderIndicators(); recompute();
+}
+function preset() { return state.grid?.meta.presets[state.preset]; }
+function weightsFor(id) {
+  if (!state.weights[id]) state.weights[id] = { ...state.grid.meta.presets[id].weights };
+  return state.weights[id];
+}
+function activeWeights() { const w = weightsFor(state.preset); return Object.fromEntries(Object.entries(w).filter(([, v]) => v > 0)); }
+
+function renderPresets() {
+  const g = state.grid; const box = $('preset-list'); if (!g) return;
+  const ids = MODES[state.mode].presets;
+  box.hidden = ids.length < 2;
+  box.replaceChildren(...ids.map(id => el('button', { type: 'button', class: `seg${id === state.preset ? ' active' : ''}`, 'aria-pressed': String(id === state.preset),
+    onclick: () => { state.preset = id; if (id !== 'biodiversity') state.lastSpecies = id; renderPresets(); renderIndicators(); recompute(); } }, g.meta.presets[id].label)));
 }
 
-/* ---------- demo habitat model (synthetic placeholder) ---------- */
-const demoLayers = () => state.manifest?.layers.filter(l => l.status === 'synthetic' && l.type === 'geojson' && l.style?.scoreField) || [];
-function demoOn() { return demoLayers().some(l => state.mgr?.status(l.id).visible); }
-function syncDemoButton() {
-  const on = demoOn(); const b = $('demo-toggle');
-  b.setAttribute('aria-pressed', String(on));
-  b.textContent = on ? '■ Hide demo habitat model' : '▶ Preview habitat score model (demo)';
-  $('demo-controls').hidden = !on;
+function renderIndicators() {
+  const g = state.grid; if (!g) return;
+  const w = weightsFor(state.preset); const memo = (state.memo ||= {});
+  const order = [...g.meta.indicators].sort((a, b) => (w[b.id] || 0) - (w[a.id] || 0));
+  const rows = order.map(d => {
+    const on = (w[d.id] || 0) > 0; const val = on ? w[d.id] : (memo[`${state.preset}:${d.id}`] || 10);
+    const why = el('div', { class: 'ind-why', hidden: true }, el('p', {}, el('b', {}, 'Measures: '), d.how), el('p', {}, el('b', {}, 'Why it matters: '), d.why), el('p', { class: 'ind-src' }, `Data: ${d.source}`));
+    const row = el('div', { class: `ind-row${on ? '' : ' off'}`, 'data-ind': d.id },
+      el('label', { class: 'ind-check' }, el('input', { type: 'checkbox', checked: on, onchange: (e) => {
+        if (e.target.checked) w[d.id] = Number(row.querySelector('input[type=range]').value) || 10;
+        else { memo[`${state.preset}:${d.id}`] = w[d.id] || 10; w[d.id] = 0; }
+        row.classList.toggle('off', !e.target.checked); recompute();
+      } }), el('span', {}, d.label)),
+      el('input', { type: 'range', min: 5, max: 50, step: 5, value: val, 'aria-label': `${d.label} weight`, oninput: (e) => {
+        const v = Number(e.target.value); row.querySelector('.ind-w').textContent = v;
+        if (row.querySelector('input[type=checkbox]').checked) { w[d.id] = v; recompute(); } else memo[`${state.preset}:${d.id}`] = v;
+      } }),
+      el('span', { class: 'ind-w', title: 'Weight' }, val),
+      el('button', { type: 'button', class: 'ind-info', 'aria-label': `About ${d.label}`, 'aria-expanded': 'false', onclick: (e) => {
+        why.hidden = !why.hidden; e.currentTarget.setAttribute('aria-expanded', String(!why.hidden)); } }, 'i'),
+      why);
+    return row;
+  });
+  $('indicator-list').replaceChildren(...rows);
 }
-async function toggleDemo() {
-  const { mgr } = state; if (!mgr) return;
-  const on = !demoOn();
-  for (const l of demoLayers()) mgr.status(l.id).visible = on;
-  buildPanel(); if (!on) clearSelection();
-  await mgr.apply();
-  if (on && state.map.getZoom() < 6) flyToPilot();
-  if (on && isPhone()) setTab('map');
+
+let paintRaf = 0;
+function recompute() {
+  const g = state.grid; if (!g) return;
+  const weights = activeWeights();
+  const st = g.compute(weights);
+  cancelAnimationFrame(paintRaf);
+  paintRaf = requestAnimationFrame(() => { drawScore(); updateScoreInsights(st); });
+}
+function drawScore() {
+  const g = state.grid, map = state.map; if (!g || !map) return;
+  const url = g.paint(state.minScore);
+  const src = map.getSource('score-grid');
+  if (src) src.updateImage({ url, coordinates: g.corners() });
+  else {
+    map.addSource('score-grid', { type: 'image', url, coordinates: g.corners() });
+    map.addLayer({ id: 'score-grid', type: 'raster', source: 'score-grid', paint: { 'raster-opacity': state.scoreOpacity, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } }, map.getLayer('anchor-vectors') ? 'anchor-vectors' : undefined);
+    map.addSource('score-cell', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'score-cell', type: 'line', source: 'score-cell', paint: { 'line-color': '#ffffff', 'line-width': 3 } });
+  }
+  map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none');
+  if (state.selectedCell >= 0 && state.selectedCell !== undefined) selectCell(state.selectedCell, null, true);
+}
+
+/** AUC: chance that a random sighting square scores higher than a random square of the region. */
+function sightingsAUC(cells) {
+  const sc = state.grid.scores; const bg = [];
+  for (let i = 0; i < sc.length; i++) if (!Number.isNaN(sc[i])) bg.push(sc[i]);
+  bg.sort((a, b) => a - b);
+  const below = (v) => { let lo = 0, hi = bg.length; while (lo < hi) { const m = (lo + hi) >> 1; if (bg[m] < v) lo = m + 1; else hi = m; } let eq = lo; while (eq < bg.length && bg[eq] === v) eq++; return (lo + (eq - lo) / 2) / bg.length; };
+  const p = cells.map(i => sc[i]).filter(v => !Number.isNaN(v));
+  if (!p.length) return null;
+  const top30 = bg[Math.floor(bg.length * 0.7)];
+  return { auc: p.reduce((a, v) => a + below(v), 0) / p.length, n: p.length, inTop30: p.filter(v => v >= top30).length / p.length };
+}
+
+function updateScoreInsights(st) {
+  const g = state.grid; const p = preset();
+  const ticked = Object.keys(activeWeights()).length;
+  setText('insight-label', `${p.label.toUpperCase()} · MEAN SCORE`);
+  setText('insight-count', Number.isNaN(st.mean) ? '—' : Math.round(st.mean));
+  setText('insight-sub', `${st.cells.toLocaleString()} squares of 200 m · ${ticked} indicator${ticked === 1 ? '' : 's'} ticked`);
+  const { total, above } = histogramBars($('distribution-bars'), st.hist, state.minScore);
+  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * above / Math.max(1, total))}% of the region (${(above * 0.04).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
+  $('mini-track-fill').style.width = `${Math.round(st.mean || 0)}%`;
+  // Evidence: real sightings from GBIF
+  const v = g.meta.validation?.[p.species || ''];
+  const box = $('validation-box');
+  if (!v) { box.hidden = false; box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.')); }
+  else if (v.cells.length < 30) { box.hidden = false; box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sightings`)), el('p', { class: 'control-note' }, `Only ${v.cells.length} ${p.label.toLowerCase()} sightings with exact locations in GBIF for this region: too few to test the score. Hunting-bag or camera-trap data would fix this.`)); }
+  else {
+    const r = sightingsAUC(v.cells);
+    const verdict = r.auc >= 0.7 ? 'good' : r.auc >= 0.6 ? 'fair' : r.auc > 0.55 ? 'weak' : r.auc >= 0.45 ? 'no better than random' : 'worse than random';
+    box.hidden = false;
+    box.replaceChildren(
+      el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: real sightings'), el('span', { class: `tag ${r.auc >= 0.6 ? 'tag-real' : ''}` }, `AUC ${r.auc.toFixed(2)} · ${verdict}`)),
+      el('div', { class: 'auc-track' }, el('i', { style: `left:${Math.max(0, Math.min(100, (r.auc - 0.5) * 200))}%` })),
+      el('div', { class: 'range-label' }, el('span', {}, '0.5 random'), el('span', {}, '1.0 perfect')),
+      el('p', { class: 'control-note' }, `${r.n} roe deer sightings from GBIF (${v.years}, location within 250 m). ${Math.round(100 * r.inTop30)}% of them fall in the top 30% of squares (30% expected by chance). Change the ticks and weights: this check updates live.`),
+      p.heldout ? el('p', { class: 'control-note heldout' }, el('b', {}, 'Fair test: '), p.heldout) : null,
+      r.auc < 0.5 ? el('p', { class: 'control-note' }, 'Why so low? People report roe deer mostly in open farmland, where they are easy to see, and rarely inside forest. Try "Roe deer · data", or untick Tree cover and Vegetation moisture.') : null);
+  }
+  setText('score-note', `${g.meta.version} · ${g.meta.region} · Sentinel-2 ${formatDate(g.meta.dates.sentinel2)} · ESA WorldCover ${g.meta.dates.worldcover} · OSM ${formatDate(g.meta.dates.osm)}`);
+  setText('meta-layer', `${p.label} (${g.meta.version})`); setText('meta-date', `Sentinel-2 ${formatDate(g.meta.dates.sentinel2)}`);
+  setText('meta-status', 'Real open data · relative index, first version'); setText('meta-resolution', `${g.meta.cell_m} m squares · ${g.meta.cols} × ${g.meta.rows}`);
+  setText('meta-coverage', g.meta.region); setText('meta-source', g.meta.sources_short);
+  setText('meta-description', p.description || '');
+  setText('metric-latest', `S-2 ${formatDate(g.meta.dates.sentinel2)}`);
+}
+
+function highlightCell(i) {
+  const src = state.map?.getSource('score-cell'); state.selectedCell = i;
+  if (!src) return;
+  if (i < 0) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+  const [w, s, e, n] = state.grid.cellBounds(i);
+  src.setData({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] } });
+}
+function selectCell(i, lngLat, quiet) {
+  const g = state.grid; const p = preset();
+  const ex = g.explain(i, activeWeights());
+  const [w, s, e, n] = g.cellBounds(i); const c = { lat: (s + n) / 2, lng: (w + e) / 2 };
+  highlightCell(i); state.mgr?.highlight(null);
+  setText('feature-name', `${p.label}: ${Number.isNaN(ex.score) ? '—' : Math.round(ex.score)} / 100`);
+  setText('feature-type', '200 m square');
+  $('feature-caption').textContent = `Square centred at ${c.lat.toFixed(4)}° N, ${c.lng.toFixed(4)}° E.`;
+  const parts = ex.parts;
+  $('feature-attributes').replaceChildren(
+    el('div', { class: 'explain' },
+      el('div', { class: 'explain-head' }, el('span', {}, 'Why this score'), el('span', {}, 'value · weight → points')),
+      ...parts.map(x => el('div', { class: 'explain-row', title: `${x.label}: ${x.value}/100 × ${x.weight}% = ${x.pts.toFixed(1)} points` },
+        el('span', { class: 'explain-label' }, x.label),
+        el('span', { class: 'explain-bar' }, el('i', { style: `width:${x.value}%;background:${scoreCSS(x.value)}` })),
+        el('span', { class: 'explain-num' }, `${x.value} · ${x.weight}% → ${x.pts.toFixed(0)}`))),
+      el('div', { class: 'explain-total' }, el('span', {}, 'Total'), el('b', {}, `${Math.round(ex.score)} / 100`))),
+    el('div', { class: 'raw-head' }, 'Measured in this square'),
+    ...g.raw(i).map(([k, v]) => el('div', { class: 'attribute' }, el('span', {}, k), el('b', {}, v))),
+    el('p', { class: 'control-note' }, 'A relative score within the pilot region, not a probability of seeing an animal.'));
+  $('feature-card').classList.remove('is-synthetic');
+  if (quiet) return;
+  if (isPhone()) setTab('insights'); else setCollapsed('right', false);
+  state.popup?.remove();
+  state.popup = new maplibregl.Popup({ closeButton: true, maxWidth: '230px', offset: 6 }).setLngLat(lngLat || c)
+    .setDOMContent(el('div', { class: 'popup' }, el('b', {}, p.label), el('div', { class: 'popup-score' }, el('i', { class: 'chip', style: `background:${scoreCSS(ex.score)}` }), `Score ${Math.round(ex.score)} / 100`),
+      el('div', { class: 'popup-meta' }, parts.length ? `Top reason: ${parts[0].label}` : ''))).addTo(state.map);
+}
+
+/* ---------- method dialog (built from grid.json, so it always matches the data) ---------- */
+function renderMethod() {
+  const g = state.grid; if (!g) return; const m = g.meta;
+  const presets = Object.entries(m.presets);
+  $('method-body').replaceChildren(
+    el('p', { class: 'help-lead' }, m.method.lead),
+    el('p', { class: 'formula' }, 'score = Σ (weight × indicator) ÷ Σ weight      (ticked indicators only, each 0–100)'),
+    el('h3', {}, 'The indicators'),
+    el('div', { class: 'table-wrap' }, el('table', { class: 'method-table' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Indicator'), el('th', {}, 'What is measured'), el('th', {}, 'Why it matters'), el('th', {}, 'Data'))),
+      el('tbody', {}, ...m.indicators.map(d => el('tr', {}, el('td', {}, el('b', {}, d.label)), el('td', {}, d.how), el('td', {}, d.why), el('td', {}, d.source)))))),
+    el('h3', {}, 'Starting weights'),
+    el('div', { class: 'table-wrap' }, el('table', { class: 'method-table' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Indicator'), ...presets.map(([, p]) => el('th', {}, p.label)))),
+      el('tbody', {}, ...m.indicators.map(d => el('tr', {}, el('td', {}, d.label), ...presets.map(([, p]) => el('td', {}, p.weights[d.id] ? `${p.weights[d.id]}` : '–'))))))),
+    ...presets.map(([, p]) => el('p', { class: 'control-note' }, el('b', {}, `${p.label}: `), p.rationale)),
+    el('h3', {}, 'Evidence check'),
+    el('p', {}, m.method.validation),
+    el('h3', {}, 'Limits of version 1'),
+    el('ul', {}, ...m.method.limits.map(t => el('li', {}, t))),
+    el('h3', {}, 'Data sources'),
+    el('ul', {}, ...m.method.sources.map(t => el('li', {}, t))));
+}
+
+/* ---------- export: the score you built, as a GeoTIFF for QGIS ---------- */
+function downloadScore() {
+  const g = state.grid; if (!g) return;
+  const name = `wildscope_${state.preset}_score_${g.meta.dates.sentinel2}.tif`;
+  const blob = writeGeoTiff(g.scores, g.meta.cols, g.meta.rows, g.meta.bbox, -9999);
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  setText('map-status', `Downloaded ${name} (open it in QGIS; no-data = -9999)`);
 }
 
 /* ---------- My Revier: a private hunting-ground boundary (never leaves the browser) ---------- */
@@ -333,7 +434,7 @@ function showRevier(gj, name, fly = true) {
   setText('revier-area', ha >= 100 ? `${(ha / 100).toFixed(2)} km²` : `${ha.toFixed(1)} ha`);
   if (fly) { state.spinner?.stop(); map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: panelPadding(), maxZoom: 15, duration: 2500 }); $('fly-btn').hidden = true; $('globe-btn').hidden = false; }
   condPinned = { lat: (b[1] + b[3]) / 2, lng: (b[0] + b[2]) / 2 };
-  updateConditions(condPinned, 'My Revier');
+  updateConditions(condPinned, 'My hunting ground');
 }
 async function loadRevierFile(file) {
   try {
@@ -343,7 +444,7 @@ async function loadRevierFile(file) {
     const name = fc.features[0]?.properties?.name || file.name.replace(/\.(geo)?json$/i, '');
     showRevier(fc, name);
     try { localStorage.setItem(REVIER_KEY, JSON.stringify({ name, fc })); } catch { /* storage may be blocked: fine, it just won't be remembered */ }
-  } catch (e) { warn(`Could not load the Revier boundary: ${e.message}. Use a GeoJSON polygon in longitude/latitude (EPSG:4326).`); }
+  } catch (e) { warn(`Could not load the boundary: ${e.message}. Use a GeoJSON polygon in longitude/latitude (EPSG:4326).`); }
   $('revier-file').value = '';
 }
 function clearRevier() {
@@ -369,7 +470,11 @@ function setTab(tab) {
 
 /* ---------- static controls ---------- */
 function attachControls() {
-  $('demo-toggle').addEventListener('click', toggleDemo);
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  $('preset-reset').addEventListener('click', () => { if (!state.grid) return; delete state.weights[state.preset]; renderIndicators(); recompute(); });
+  $('score-visible').addEventListener('change', (e) => { state.scoreOn = e.target.checked; if (state.map?.getLayer('score-grid')) state.map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none'); if (!state.scoreOn) highlightCell(-1); });
+  $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
+  $('method-btn').addEventListener('click', () => { const d = $('method'); if (d.showModal) d.showModal(); else d.setAttribute('open', ''); });
   $('labels-btn').addEventListener('click', () => { state.labels = !state.labels; syncLabels(); });
   initSearch({ form: $('search-form'), input: $('search-input'), list: $('search-results'), status: $('search-status'),
     getNear: () => (state.map && state.map.getZoom() > 5 ? state.map.getCenter() : null), onPick: goToPlace });
@@ -386,11 +491,11 @@ function attachControls() {
   $('fly-btn').addEventListener('click', () => flyToPilot());
   $('globe-btn').addEventListener('click', backToGlobe);
   $('reset-btn').addEventListener('click', () => { flyToPilot(2500); });
-  $('export-btn').addEventListener('click', downloadVisible);
+  $('export-btn').addEventListener('click', downloadScore);
   document.querySelectorAll('[data-basemap]').forEach(b => b.addEventListener('click', () => updateBasemap(b.dataset.basemap, true)));
   document.querySelectorAll('[data-projection]').forEach(b => b.addEventListener('click', () => setProjection(b.dataset.projection)));
   $('snapshot-select').addEventListener('change', (e) => { clearSelection(); state.mgr?.setDate(e.target.value); });
-  $('score-threshold').addEventListener('input', (e) => { setText('threshold-label', e.target.value); state.mgr?.setMinScore(e.target.value); });
+  $('score-threshold').addEventListener('input', (e) => { setText('threshold-label', e.target.value); state.minScore = Number(e.target.value); recompute(); });
   $('copy-view').addEventListener('click', async () => {
     if (!state.map) return;
     const c = state.map.getCenter();
@@ -404,6 +509,7 @@ async function start() {
   attachControls();
   updateBasemap(state.basemap);
   const manifestP = loadManifest().catch((e) => { warn(`Cannot load data/layers.json: ${e.message}. Serve the folder over HTTP (not file://).`, true); return null; });
+  const gridP = ScoreGrid.load().catch((e) => { warn(`Score grid unavailable: ${e.message}`); return null; });
   let map;
   try { map = await initialiseMap(); }
   catch (e) {
@@ -417,11 +523,18 @@ async function start() {
   state.manifest = manifest;
   if (manifest.defaults.basemap && manifest.defaults.basemap !== state.basemap) updateBasemap(manifest.defaults.basemap);
   if (manifest.warnings.length) warn(`layers.json: ${manifest.warnings.length} entr${manifest.warnings.length === 1 ? 'y' : 'ies'} skipped — see browser console.`);
-  $('score-threshold').value = manifest.defaults.minScore; setText('threshold-label', manifest.defaults.minScore);
   state.mgr = new LayerManager(map, manifest, { onChange: updateAnalytics, onError: (m) => warn(`Layer failed: ${m}`) });
-  renderSpecies(); renderDates(); buildPanel(); clearFeature();
+  renderDates(); buildPanel(); clearFeature();
   addLabelLayers(); updateCopernicusLink();
   await state.mgr.apply();
+  state.grid = await gridP;
+  if (state.grid) {
+    $('score-legend-bar').style.background = rampGradient();
+    setText('metric-region', state.grid.meta.region_short || state.grid.meta.region);
+    renderMethod();
+    const m = params.get('mode'); setMode(MODES[m] ? m : 'habitat');
+  } else setText('score-note', 'Score grid could not be loaded.');
+  const badge = $('data-status'); badge.classList.add('real'); badge.replaceChildren(el('span', {}, '◆'), ' REAL OPEN DATA · v1 scores');
   loading(false);
   restoreRevier();
   if (!state.revier) scheduleConditions(true);

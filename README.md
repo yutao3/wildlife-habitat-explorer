@@ -1,6 +1,10 @@
-# SAIIL Wildlife Habitat Explorer
+# WildScope (SAIIL)
 
-A **static, GitHub Pages** web portal that shows Earth-observation-derived habitat indicators (vegetation, moisture, forest change, water, habitat score) on a **3D globe**. Pilot region: Black Forest, Germany.
+A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiversity potential** and **hunting conditions** from free satellite and map data, on a **3D globe**. Pilot region: Freiburg & western Black Forest, Germany.
+
+**Three modes:** *Habitat* (roe deer, wild boar), *Biodiversity* (habitat variety, natural cover, spectral diversity) and *Hunting* (habitat score + live wind, light, moon and a private hunting-ground boundary).
+
+**v1 scores (real data, Nov 2026).** Ten indicators per 200 m square from Copernicus Sentinel-2 (24 Jul 2026), ESA WorldCover 2021 and OpenStreetMap, combined live in the browser with weights the user can change. The roe deer score is checked against 186 GBIF sightings (AUC shown in the app). How it is made: **[scripts/README_scores.md](scripts/README_scores.md)**. Outputs: `data/scores/` (website) and `data/scores/qgis/` (GeoTIFFs).
 
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
@@ -17,9 +21,9 @@ A **static, GitHub Pages** web portal that shows Earth-observation-derived habit
 | Live hunting conditions (wind, gusts, temp, cloud, pressure, rain, 12 h forecast, sunrise/sunset) | [Open-Meteo](https://open-meteo.com) | live (15 min) | CC BY 4.0. The free API is non-commercial, under 10k calls/day. Paid plan for production |
 | Moon phase, daylight window (BJagdG §19) | computed in the browser | live | n/a |
 
-**The habitat-score model is still SYNTHETIC.** It is drawn as small explainable patches (about 200–400 m; click one for "Why this score": each indicator's value × weight). Regenerate with `python3 scripts/make_demo_patches.py`. It's in the "Demo habitat model" group, switched off by default, and shows a yellow badge when on. It's a placeholder until SAIIL's Sentinel-2 habitat analytics (NDVI/NDMI, canopy, clearings, water) are published as manifest layers. No public, validated habitat-suitability dataset for roe deer or wild boar exists to replace it. Nothing on this site is an animal occurrence or a hunting recommendation.
+**The old synthetic demo patches were removed** when the real v1 scores arrived (their files stay in `data/layers/` for reference). Scores are relative indices within the pilot region, not animal counts or hunting recommendations.
 
-- Live (branch `dev_v0`): https://hunting.saiil.co.uk
+- Live (branch `dev_v0`): https://wildscope.saiil.co.uk
 - Add or replace a layer: **[docs/ADDING_LAYERS.md](docs/ADDING_LAYERS.md)**
 
 ## Run locally
@@ -29,9 +33,9 @@ cd wildlife-habitat-explorer
 python3 -m http.server 8000      # then open http://localhost:8000
 ```
 
-Opening `index.html` as `file://` won't work, because browsers block `fetch()` of local JSON. Useful URL options: `?flat=1` (start in 2D) and `?autofly=1` (fly to the pilot region automatically after load).
+Opening `index.html` as `file://` won't work, because browsers block `fetch()` of local JSON. Useful URL options: `?mode=habitat|biodiversity|hunting`, `?flat=1` (start in 2D) and `?autofly=1` (fly to the pilot region automatically after load).
 
-**Layout:** a full-screen map with two floating panels: *Layers & filters* (left) and *Conditions & insights* (right). Either can be hidden with its ◂/▸ button. On phones the panels open as bottom sheets from the tab bar. The **How to use** button in the top bar opens a short in-site guide.
+**Layout:** a full-screen map with two floating panels: *Explore* (left: mode, score builder, data layers) and *Insights* (right: score summary, evidence check, clicked square, live conditions in Hunting mode). Either can be hidden with its ◂/▸ button. On phones the panels open as bottom sheets from the tab bar. The **How to use** button in the top bar opens a short in-site guide.
 
 ---
 

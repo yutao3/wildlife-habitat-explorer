@@ -1,0 +1,538 @@
+{
+ "version": "WildScope v1",
+ "created": "2026-11-16",
+ "region": "Freiburg & western Black Forest (DE)",
+ "region_short": "Freiburg & Black Forest (DE)",
+ "bbox": [
+  7.67,
+  47.85,
+  8.2694,
+  48.2496
+ ],
+ "cols": 222,
+ "rows": 222,
+ "cell_m": 200,
+ "bin": "grid.bin",
+ "layers": [
+  "valid",
+  "cover",
+  "edge",
+  "forage",
+  "quiet",
+  "water",
+  "moisture",
+  "crops",
+  "diversity",
+  "natural",
+  "spectral",
+  "raw_tree",
+  "raw_open",
+  "raw_crop",
+  "raw_built",
+  "raw_ndvi",
+  "raw_ndmi",
+  "raw_droad",
+  "raw_dwater"
+ ],
+ "dates": {
+  "sentinel2": "2026-07-24",
+  "sentinel2_scene": "S2A_MSIL2A_20260724T102701_R108_T32UMU_20260724T171410",
+  "worldcover": "2021",
+  "osm": "2026-11-16",
+  "gbif": "2026-11-16"
+ },
+ "sources_short": "Sentinel-2 L2A (Copernicus/ESA via Microsoft Planetary Computer), ESA WorldCover 2021, OpenStreetMap, GBIF",
+ "indicators": [
+  {
+   "id": "cover",
+   "label": "Tree cover (shelter)",
+   "how": "Share of the 200 m square covered by trees (ESA WorldCover, 10 m).",
+   "why": "Deer and boar rest and hide in woodland; on hot days woodland is the best shade (Biological Conservation 2025, roe deer).",
+   "source": "ESA WorldCover 2021"
+  },
+  {
+   "id": "edge",
+   "label": "Forest–open edge",
+   "how": "Length of boundary between trees and grass, crops or shrubs, within 600 m (3 × 3 squares), scaled to the region.",
+   "why": "Edges put food (open land) next to cover (forest): the classic roe deer habitat. Rated \"high\" in the feasibility study.",
+   "source": "ESA WorldCover 2021"
+  },
+  {
+   "id": "forage",
+   "label": "Food on open land",
+   "how": "Mean Sentinel-2 NDVI of grass, crop and shrub pixels within 600 m on 24 Jul 2026 (0.25 → 0, 0.75 → 100).",
+   "why": "Green, growing vegetation near cover is food. Using only open land avoids the \"dark forest looks greenest\" trap.",
+   "source": "Copernicus Sentinel-2 L2A, 24 Jul 2026"
+  },
+  {
+   "id": "quiet",
+   "label": "Quiet (far from roads)",
+   "how": "Mean distance to the nearest road or built-up pixel (0 m → 0, 1 km or more → 100).",
+   "why": "Hunting and recreation disturb deer more than wolves do (Ecology & Evolution 2026); tracked animals keep away from roads.",
+   "source": "OpenStreetMap roads + ESA WorldCover built-up"
+  },
+  {
+   "id": "water",
+   "label": "Water nearby",
+   "how": "Distance from the square to the nearest river, stream, lake or wetland (water inside the square → 100, 400 m or more → 0).",
+   "why": "Drinking water; wild boar also need wet ground to wallow in.",
+   "source": "OpenStreetMap waterways + ESA WorldCover water"
+  },
+  {
+   "id": "moisture",
+   "label": "Vegetation moisture",
+   "how": "Mean Sentinel-2 NDMI of vegetation in the square, scaled to the region (2nd–98th percentile).",
+   "why": "Moist, lush vegetation is better food and cover in summer; dry stress lowers both. Rated \"high\" in the feasibility study.",
+   "source": "Copernicus Sentinel-2 L2A, 24 Jul 2026"
+  },
+  {
+   "id": "crops",
+   "label": "Farmland nearby",
+   "how": "Share of cropland within 600 m (50% or more → 100).",
+   "why": "Wild boar raid maize and cereals next to forest; crops are also roe deer food.",
+   "source": "ESA WorldCover 2021"
+  },
+  {
+   "id": "diversity",
+   "label": "Habitat variety",
+   "how": "Shannon diversity of land-cover types (forest, shrub, grass, crop, water, wetland) within 600 m; four evenly mixed types → 100.",
+   "why": "More habitat types close together support more species (landscape heterogeneity).",
+   "source": "ESA WorldCover 2021"
+  },
+  {
+   "id": "natural",
+   "label": "Natural cover",
+   "how": "Share of the square that is forest, shrub, grassland, water or wetland (not crops, not built-up, not bare).",
+   "why": "Semi-natural land holds more species than arable fields or towns.",
+   "source": "ESA WorldCover 2021"
+  },
+  {
+   "id": "spectral",
+   "label": "Plant variety (spectral)",
+   "how": "Spread (standard deviation) of Sentinel-2 NDVI across the vegetation in the square, scaled to the region.",
+   "why": "More variety of greenness in an image tends to mean more plant variety (spectral variation hypothesis).",
+   "source": "Copernicus Sentinel-2 L2A, 24 Jul 2026"
+  }
+ ],
+ "raw": [
+  {
+   "id": "raw_tree",
+   "label": "Tree cover",
+   "unit": "%"
+  },
+  {
+   "id": "raw_open",
+   "label": "Grass, crop, shrub",
+   "unit": "%"
+  },
+  {
+   "id": "raw_crop",
+   "label": "Cropland",
+   "unit": "%"
+  },
+  {
+   "id": "raw_built",
+   "label": "Built-up",
+   "unit": "%"
+  },
+  {
+   "id": "raw_ndvi",
+   "label": "NDVI of vegetation (24 Jul)",
+   "scale": 0.01,
+   "digits": 2
+  },
+  {
+   "id": "raw_ndmi",
+   "label": "NDMI of vegetation (24 Jul)",
+   "scale": 0.01,
+   "offset": -0.5,
+   "digits": 2
+  },
+  {
+   "id": "raw_droad",
+   "label": "Mean distance to road / town",
+   "unit": "m",
+   "scale": 20
+  },
+  {
+   "id": "raw_dwater",
+   "label": "Nearest water",
+   "unit": "m",
+   "scale": 20
+  }
+ ],
+ "presets": {
+  "roe_deer": {
+   "label": "Roe deer · expert",
+   "species": "roe_deer",
+   "mode": "habitat",
+   "weights": {
+    "edge": 25,
+    "cover": 20,
+    "forage": 20,
+    "quiet": 15,
+    "moisture": 10,
+    "water": 10
+   },
+   "rationale": "Roe deer are edge animals: they feed on open land and hide in nearby woodland, so the forest–open edge gets the largest weight, then cover and food. Quiet reflects avoidance of roads and people; water and moisture matter less.",
+   "description": "Roe deer habitat score v1 (expert weights): forest–open edge, cover, food on open land, quiet, moisture and water."
+  },
+  "roe_deer_data": {
+   "label": "Roe deer · data",
+   "species": "roe_deer",
+   "mode": "habitat",
+   "weights": {
+    "edge": 40,
+    "forage": 20,
+    "quiet": 30,
+    "crops": 30,
+    "diversity": 30,
+    "natural": 10,
+    "spectral": 30
+   },
+   "rationale": "Weights learned from where roe deer were actually reported: each indicator that separates the 2009–2021 sightings from the rest of the region gets a weight in proportion to how well it does (indicator AUC − 0.5). It is then tested on the 2022–2026 sightings it never saw.",
+   "description": "Roe deer habitat score v1 (weights learned from GBIF sightings 2009–2021, tested on 2022–2026).",
+   "heldout": "Learned from 83 sightings (before 2022); on the 103 newer sightings it never saw: AUC 0.57, 41% in the top 30% of squares (expert weights on the same sightings: AUC 0.41).",
+   "train_indicator_auc": {
+    "cover": 0.309,
+    "edge": 0.583,
+    "forage": 0.538,
+    "quiet": 0.56,
+    "water": 0.44,
+    "moisture": 0.316,
+    "crops": 0.564,
+    "diversity": 0.565,
+    "natural": 0.521,
+    "spectral": 0.559
+   }
+  },
+  "wild_boar": {
+   "label": "Wild boar",
+   "species": "wild_boar",
+   "mode": "habitat",
+   "weights": {
+    "cover": 25,
+    "crops": 25,
+    "water": 15,
+    "quiet": 15,
+    "moisture": 10,
+    "edge": 10
+   },
+   "rationale": "Wild boar rest in dense cover and feed in fields (maize, cereals) at night, so cover and nearby farmland get the largest weights; wet ground for wallowing and quiet come next.",
+   "description": "Wild boar habitat score v1: cover, farmland nearby, water, quiet, moisture and edge."
+  },
+  "biodiversity": {
+   "label": "Biodiversity potential",
+   "species": null,
+   "mode": "biodiversity",
+   "weights": {
+    "diversity": 30,
+    "natural": 25,
+    "spectral": 20,
+    "quiet": 15,
+    "water": 10
+   },
+   "rationale": "Biodiversity potential rewards places with many habitat types close together, a high share of semi-natural land, varied vegetation, little disturbance and water. It is a proxy for how much life a place can support, not a count of species.",
+   "description": "Biodiversity potential v1: habitat variety, natural cover, spectral diversity, quiet and water.",
+   "noValidation": "Not yet tested. Next step: compare with the number of species recorded in GBIF per square (biased towards towns and paths) or with field surveys."
+  }
+ },
+ "validation": {
+  "roe_deer": {
+   "cells": [
+    18451,
+    31605,
+    1133,
+    19607,
+    910,
+    9214,
+    31610,
+    15356,
+    14240,
+    18650,
+    18874,
+    31603,
+    31603,
+    8066,
+    2564,
+    31600,
+    31377,
+    19097,
+    3355,
+    3121,
+    14244,
+    910,
+    14656,
+    15362,
+    19097,
+    21980,
+    18873,
+    18873,
+    27740,
+    18878,
+    3082,
+    32003,
+    7984,
+    26314,
+    30612,
+    15973,
+    18564,
+    31603,
+    8027,
+    45074,
+    22897,
+    47904,
+    19562,
+    910,
+    871,
+    39727,
+    30882,
+    34945,
+    32054,
+    4024,
+    2848,
+    18870,
+    35299,
+    910,
+    13792,
+    13980,
+    18655,
+    41812,
+    47062,
+    20250,
+    6022,
+    910,
+    46189,
+    39817,
+    15681,
+    24871,
+    18649,
+    15134,
+    2020,
+    2020,
+    2179,
+    1071,
+    3580,
+    1133,
+    27763,
+    8476,
+    1133,
+    18649,
+    32606,
+    18778,
+    46927,
+    21133,
+    46927,
+    46927,
+    46927,
+    29783,
+    31939,
+    15331,
+    21550,
+    248,
+    17324,
+    23089,
+    20665,
+    43285,
+    15480,
+    1862,
+    18877,
+    21990,
+    45875,
+    16822,
+    16599,
+    46100,
+    31152,
+    34194,
+    910,
+    20447,
+    910,
+    20447,
+    910,
+    19318,
+    19318,
+    19097,
+    18655,
+    18655,
+    45345,
+    7798,
+    42343,
+    23546,
+    33,
+    6245,
+    33159,
+    2471,
+    1141,
+    19990,
+    910,
+    910,
+    43405,
+    35341,
+    18875,
+    18876,
+    18431,
+    910,
+    36238,
+    17327,
+    23532,
+    45123,
+    45788,
+    45567,
+    910,
+    20447,
+    21758,
+    18877,
+    18649,
+    47152,
+    3451,
+    27887,
+    36017,
+    22030,
+    25975,
+    239,
+    37561,
+    45123,
+    1076,
+    20225,
+    910,
+    45264,
+    48596,
+    48596,
+    45264,
+    45263,
+    45706,
+    45707,
+    47087,
+    45123,
+    45123,
+    29377,
+    6245,
+    6245,
+    6245,
+    12184,
+    12184,
+    6245,
+    910,
+    910,
+    18649,
+    910,
+    910,
+    6245,
+    46043,
+    17540,
+    17540,
+    15803,
+    17540,
+    30231,
+    47419,
+    37561
+   ],
+   "n_records": 186,
+   "years": "2009–2026",
+   "source": "GBIF.org occurrence search, human observations, coordinate uncertainty ≤ 250 m"
+  },
+  "wild_boar": {
+   "cells": [
+    32003,
+    22291,
+    43063,
+    17787,
+    38464,
+    35152,
+    223
+   ],
+   "n_records": 7,
+   "years": "2010–2024",
+   "source": "GBIF.org occurrence search, human observations, coordinate uncertainty ≤ 250 m"
+  }
+ },
+ "stats": {
+  "heldout": {
+   "roe_deer": {
+    "auc": 0.408,
+    "n": 103,
+    "in_top30": 0.184
+   },
+   "roe_deer_data": {
+    "auc": 0.573,
+    "n": 103,
+    "in_top30": 0.408
+   }
+  },
+  "roe_deer": {
+   "mean": 48.7,
+   "p10": 30.4,
+   "p90": 64.2,
+   "auc": 0.408,
+   "n": 186,
+   "in_top30": 0.215,
+   "indicator_auc": {
+    "cover": 0.35,
+    "edge": 0.552,
+    "forage": 0.513,
+    "quiet": 0.547,
+    "water": 0.46,
+    "moisture": 0.365,
+    "crops": 0.558,
+    "diversity": 0.546,
+    "natural": 0.498,
+    "spectral": 0.552
+   }
+  },
+  "roe_deer_data": {
+   "mean": 35.3,
+   "p10": 19.3,
+   "p90": 50.6,
+   "auc": 0.605,
+   "n": 186,
+   "in_top30": 0.409,
+   "indicator_auc": {
+    "cover": 0.35,
+    "edge": 0.552,
+    "forage": 0.513,
+    "quiet": 0.547,
+    "water": 0.46,
+    "moisture": 0.365,
+    "crops": 0.558,
+    "diversity": 0.546,
+    "natural": 0.498,
+    "spectral": 0.552
+   }
+  },
+  "wild_boar": {
+   "mean": 44.4,
+   "p10": 26.5,
+   "p90": 58.7
+  },
+  "biodiversity": {
+   "mean": 52.0,
+   "p10": 39.5,
+   "p90": 64.7
+  }
+ },
+ "normalisation": {
+  "E98": 0.2822222113609314,
+  "S02": 0.018010593950748444,
+  "S98": 0.2422976940870285,
+  "M02": -0.10958360880613327,
+  "M98": 0.44580408930778503
+ },
+ "method": {
+  "lead": "Each 200 m square gets ten indicators, each scaled from 0 (poor) to 100 (good). A score is the weighted average of the indicators you tick. All inputs are free, open data; nothing is invented.",
+  "validation": "For roe deer we test the score against real sightings: 186 GBIF records (2009–2026, citizen science, location within 250 m). AUC is the chance that a square with a sighting scores higher than a random square: 0.5 = no better than random, 0.7 or more = useful. Result: the expert weights score AUC 0.41 – worse than random – because people report roe deer mostly in open farmland mosaic (55% open land in sighting squares vs 34% in the region) and rarely inside forest, where deer are hard to see. Weights learned from the 2009–2021 sightings reach AUC 0.57 on the 2022–2026 sightings they never saw: weak but real. Sightings are biased towards paths and places people visit, so treat this as a first check, not proof.",
+  "limits": [
+   "Weights are expert first guesses from the literature and the feasibility study; they are not fitted to data yet.",
+   "One clear Sentinel-2 date (24 Jul 2026). Weekly updates and comparison with each place's seasonal normal come next.",
+   "ESA WorldCover is from 2021 and does not separate maize from cereals, or broadleaf from conifer forest. DLR crop and forest maps can replace it in Germany.",
+   "Roads are clipped to the region, so distances near the edge are slightly too large. Footpaths and forest tracks are not counted yet.",
+   "Wild boar has only 7 usable GBIF sightings here, so its score cannot be tested yet. Biodiversity potential has no independent test yet.",
+   "Scores are relative to this region; a 70 here is not the same as a 70 in another region."
+  ],
+  "sources": [
+   "Copernicus Sentinel-2 L2A, scene S2A_MSIL2A_20260724T102701_R108_T32UMU_20260724T171410 (contains modified Copernicus Sentinel data 2026), via Microsoft Planetary Computer",
+   "ESA WorldCover 10 m 2021 v200 (© ESA WorldCover project, CC BY 4.0), via Microsoft Planetary Computer",
+   "© OpenStreetMap contributors (ODbL), roads and waterways, downloaded 2026-11-16",
+   "GBIF.org occurrence data for Capreolus capreolus and Sus scrofa, downloaded 2026-11-16 (CC BY / CC BY-NC per dataset)"
+  ]
+ }
+}

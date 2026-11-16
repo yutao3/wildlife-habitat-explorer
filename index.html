@@ -4,29 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f2422">
-  <meta name="description" content="SAIIL Wildlife Habitat Explorer: real satellite habitat indicators and live hunting conditions on a 3D globe.">
+  <meta name="description" content="WildScope by SAIIL: wildlife habitat, biodiversity and hunting maps from free satellite data (Sentinel-2, ESA WorldCover, OpenStreetMap) on a 3D globe.">
   <link rel="icon" type="image/png" href="./assets/SAIIL-favicon.png">
   <link rel="apple-touch-icon" href="./assets/SAIIL-favicon.png">
-  <title>Wildlife Habitat Explorer · SAIIL</title>
+  <title>WildScope · Habitat, Biodiversity &amp; Hunting · SAIIL</title>
   <!-- MapLibre GL JS 5.24.0 (pinned). app.js retries from jsDelivr if unpkg is unreachable. -->
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261028c" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261117a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261028c"></script>
+  <script type="module" src="./assets/app.js?v=20261117a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
 
   <!-- ===== Top bar ===== -->
   <header class="topbar">
-    <a class="brand" href="./" aria-label="Wildlife Habitat Explorer home">
+    <a class="brand" href="./" aria-label="WildScope home">
       <img class="brand-logo" src="./assets/SAIIL-logo-medium-size.png" alt="Surrey AI Imaging logo">
-      <span class="brand-text"><span class="brand-eyebrow">SURREY AI IMAGING</span><span class="brand-title">Wildlife <em>Habitat Explorer</em></span></span>
+      <span class="brand-text"><span class="brand-eyebrow">SAIIL · SURREY AI IMAGING</span><span class="brand-title">Wild<em>Scope</em></span></span>
     </a>
     <div class="status-strip" aria-label="Current view">
-      <span class="chip"><span class="small-dot" aria-hidden="true"></span><span id="metric-region">Black Forest (DE)</span></span>
+      <span class="chip"><span class="small-dot" aria-hidden="true"></span><span id="metric-region">Pilot region</span></span>
       <span class="chip" title="Dataset date"><span aria-hidden="true">◷</span> <span id="metric-latest">—</span></span>
-      <span class="chip chip-wind" title="Live wind at the map centre"><span aria-hidden="true">≋</span> <span id="metric-patches">—</span></span>
+      <span class="chip chip-wind hunting-only" title="Live wind at the map centre"><span aria-hidden="true">≋</span> <span id="metric-patches">—</span></span>
     </div>
     <div class="top-actions">
       <button type="button" class="help-btn" id="help-btn" aria-haspopup="dialog"><span aria-hidden="true">?</span> How to use</button>
@@ -51,7 +51,7 @@
             <p class="search-status" id="search-status" role="status"></p>
           </form>
           <div class="demo-flag" id="data-status"><span>◆</span> Loading…</div>
-          <div class="wind-chip" id="wind-chip" hidden></div>
+          <div class="wind-chip hunting-only" id="wind-chip" hidden></div>
         </div>
         <div class="map-switches">
           <div class="seg-switch" role="group" aria-label="Projection"><button type="button" class="base active" data-projection="globe" aria-pressed="true">3D Globe</button><button type="button" class="base" data-projection="mercator" aria-pressed="false">2D</button></div>
@@ -59,66 +59,78 @@
         </div>
       </div>
 
-      <div class="map-fly"><button type="button" id="fly-btn" class="fly-btn">✈ Fly to Black Forest pilot</button><button type="button" id="globe-btn" class="fly-btn ghost" hidden>◍ Back to globe</button></div>
+      <div class="map-fly"><button type="button" id="fly-btn" class="fly-btn">✈ Fly to pilot region</button><button type="button" id="globe-btn" class="fly-btn ghost" hidden>◍ Back to globe</button></div>
       <div class="map-bottom-left"><span class="map-coordinate" id="coordinates">Move pointer to read coordinates</span></div>
       <div class="map-bottom-right"><button type="button" id="copy-view" title="Copy the map centre coordinates">⊕ Copy view</button></div>
       <div class="map-alert" id="map-alert" hidden></div>
 
-      <button type="button" class="panel-tab panel-tab-left" id="open-left" aria-controls="panel-layers" hidden>☰ Layers</button>
+      <button type="button" class="panel-tab panel-tab-left" id="open-left" aria-controls="panel-layers" hidden>☰ Explore</button>
       <button type="button" class="panel-tab panel-tab-right" id="open-right" aria-controls="panel-insights" hidden>Insights ◂</button>
     </div>
 
     <!-- ===== Left panel: layers & filters ===== -->
     <aside class="panel left-panel" id="panel-layers" aria-label="Layers and filters">
-      <div class="panel-heading"><div><div class="section-caption">EXPLORER</div><h2>Layers &amp; filters</h2></div><button type="button" class="collapse-btn" data-collapse="left" aria-label="Hide layers panel">◂</button></div>
+      <div class="panel-heading"><div><div class="section-caption">EXPLORE</div><h2>What do you want to map?</h2></div><button type="button" class="collapse-btn" data-collapse="left" aria-label="Hide explore panel">◂</button></div>
 
-      <div class="control-group demo-box" id="demo-box">
-        <div class="control-label"><label>Habitat score model</label><span class="tag tag-demo">DEMO</span></div>
-        <p class="control-note">SAIIL's habitat score (0–100) will come from Sentinel-2 analytics. Until it's published, you can preview how it works with <b>fabricated</b> polygons.</p>
-        <button type="button" class="action demo-toggle" id="demo-toggle" aria-pressed="false">▶ Preview habitat score model (demo)</button>
-        <div class="demo-controls" id="demo-controls" hidden>
-          <div class="control-group"><div class="control-label"><label>Target species</label></div><div id="species-list" class="segmented" role="group" aria-label="Target species"></div></div>
-          <div class="control-group"><div class="control-label"><label for="score-threshold">Minimum habitat score</label><strong id="threshold-label">50</strong></div><input id="score-threshold" type="range" min="0" max="100" value="50" step="5"><div class="range-label"><span>0 · all areas</span><span>100 · best only</span></div></div>
-        </div>
+      <div class="mode-switch" role="tablist" aria-label="Mode">
+        <button type="button" role="tab" data-mode="habitat" aria-selected="true">Habitat</button>
+        <button type="button" role="tab" data-mode="biodiversity" aria-selected="false">Biodiversity</button>
+        <button type="button" role="tab" data-mode="hunting" aria-selected="false">Hunting</button>
+      </div>
+      <p class="mode-lead" id="mode-lead">Where can a species live? A 0–100 habitat score for every 200 m square.</p>
+
+      <section class="control-group score-box" id="score-box" aria-labelledby="score-title">
+        <div class="control-label"><label id="score-title">Habitat score</label><span class="tag tag-real">REAL DATA · v1</span></div>
+        <div id="preset-list" class="segmented" role="group" aria-label="Species"></div>
+        <div class="score-legend"><div class="legend-bar" id="score-legend-bar"></div><div class="legend-labels"><span>0 · low</span><span id="score-legend-label">score</span><span>100 · high</span></div></div>
+        <div class="control-label small ind-head"><label>Indicators <small>tick to include · slide to weight</small></label><button type="button" class="link-btn" id="preset-reset">Reset</button></div>
+        <div id="indicator-list" class="indicator-list" role="group" aria-label="Indicators"></div>
+        <div class="control-group"><div class="control-label"><label for="score-threshold">Show squares scoring at least</label><strong id="threshold-label">0</strong></div><input id="score-threshold" type="range" min="0" max="100" value="0" step="5"><div class="range-label"><span>0 · everything</span><span>100 · best only</span></div></div>
+        <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score on map</label><label class="op-row" for="score-opacity">Opacity <input id="score-opacity" type="range" min="10" max="100" step="5" value="75"></label></div>
+        <div class="score-actions"><button type="button" class="action secondary" id="method-btn">ⓘ How the score works</button><button type="button" class="action secondary" id="export-btn">↓ GeoTIFF for QGIS</button></div>
+        <p class="control-note" id="score-note">Loading scores…</p>
+      </section>
+
+      <div class="control-group revier-box hunting-only">
+        <div class="control-label"><label for="revier-file">My hunting ground</label><span class="tag">private</span></div>
+        <p class="control-note">Load your hunting-ground boundary (in Germany: your Revier) as GeoJSON in longitude/latitude. It stays in this browser and is never uploaded.</p>
+        <label class="action secondary file-btn"><input type="file" id="revier-file" accept=".geojson,.json,application/geo+json,application/json"><span aria-hidden="true">⤒</span> Load boundary</label>
+        <div class="revier-info" id="revier-info" hidden><div class="attribute"><span id="revier-name">My hunting ground</span><b id="revier-area">—</b></div><div class="revier-actions"><button type="button" class="action secondary" id="revier-zoom">Zoom to it</button><button type="button" class="action secondary" id="revier-clear">Remove</button></div></div>
+        <p class="legal-note"><b>Good habitat is not permission to hunt.</b> Hunt only where you are authorised, in the open season, under your local law (in Germany: your own Revier and the Jagdzeit of your federal state).</p>
       </div>
 
-      <div class="control-group revier-box">
-        <div class="control-label"><label for="revier-file">My hunting ground (Revier)</label><span class="tag">private</span></div>
-        <p class="control-note">Load your Revier boundary as GeoJSON (longitude/latitude). It stays in this browser and is never uploaded.</p>
-        <label class="action secondary file-btn"><input type="file" id="revier-file" accept=".geojson,.json,application/geo+json,application/json"><span aria-hidden="true">⤒</span> Load Revier boundary</label>
-        <div class="revier-info" id="revier-info" hidden><div class="attribute"><span id="revier-name">My Revier</span><b id="revier-area">—</b></div><div class="revier-actions"><button type="button" class="action secondary" id="revier-zoom">Zoom to Revier</button><button type="button" class="action secondary" id="revier-clear">Remove</button></div></div>
-        <p class="legal-note"><b>Good habitat is not permission to hunt.</b> In Germany you may hunt only in a Revier you are authorised for, and only in the open season (Jagdzeit) of your federal state.</p>
-      </div>
-
+      <details class="data-layers" id="data-layers">
+        <summary class="layer-group-title">Satellite &amp; reference layers</summary>
       <div class="control-group"><div class="control-label"><label for="snapshot-select">Dataset date</label><span class="tag" id="archive-tag">Archive</span></div><select id="snapshot-select" class="select"></select><p id="dataset-description" class="control-note">Pick an older date to see archived outputs (e.g. Sentinel-2 from earlier years).</p></div>
 
       <div class="control-group"><div class="control-label"><label>Map layers</label><span class="tag">from layers.json</span></div>
         <div id="layer-panel" class="layer-panel"><p class="control-note">Loading layer manifest…</p></div>
       </div>
 
-      <button type="button" class="action primary" id="export-btn"><span aria-hidden="true">↓</span> Download visible polygons (GeoJSON)</button>
+      </details>
       <button type="button" class="action secondary" id="reset-btn"><span aria-hidden="true">↗</span> Reset to pilot region</button>
       <p class="map-status"><span class="status-dot"></span><span id="map-status">Loading…</span></p>
     </aside>
 
     <!-- ===== Right panel: live conditions & insights ===== -->
     <aside class="panel right-panel" id="panel-insights" aria-label="Live conditions and insights">
-      <div class="panel-heading"><div><div class="section-caption">ANALYTICS</div><h2>Conditions &amp; insights</h2></div><button type="button" class="collapse-btn" data-collapse="right" aria-label="Hide insights panel">▸</button></div>
+      <div class="panel-heading"><div><div class="section-caption">INSIGHTS</div><h2 id="right-title">Score insights</h2></div><button type="button" class="collapse-btn" data-collapse="right" aria-label="Hide insights panel">▸</button></div>
 
-      <section class="conditions-card" aria-labelledby="cond-title" aria-live="polite"><div class="control-label"><label id="cond-title">Live hunting conditions</label><span class="tag tag-layer" title="Layer C: will animals be active and detectable on this visit?">Layer C · activity</span><span class="tag live-tag"><span class="live-dot"></span> LIVE</span></div><p class="control-note cond-where" id="cond-where">Pan the map or click a spot for real-time wind, weather and light.</p><div id="conditions"><p class="control-note">Loading…</p></div></section>
+      <section class="conditions-card hunting-only" aria-labelledby="cond-title" aria-live="polite"><div class="control-label"><label id="cond-title">Live hunting conditions</label><span class="tag live-tag"><span class="live-dot"></span> LIVE</span></div><p class="control-note cond-where" id="cond-where">Pan the map or click a spot for real-time wind, weather and light.</p><div id="conditions"><p class="control-note">Loading…</p></div></section>
 
-      <div class="divider"></div>
-      <div class="feature-card" id="feature-card"><div class="control-label"><label>Selected area</label><span id="feature-type" class="tag">Map detail</span></div><h3 id="feature-name">Select a polygon</h3><p id="feature-caption">Click a polygon on the map to see its details.</p><div id="feature-attributes" class="feature-attributes"><div class="empty-selection">No location selected</div></div></div>
+      <div class="divider hunting-only"></div>
+      <div class="feature-card" id="feature-card"><div class="control-label"><label>Selected area</label><span id="feature-type" class="tag">Map detail</span></div><h3 id="feature-name">Click the map</h3><p id="feature-caption">Click any square to see its score and why.</p><div id="feature-attributes" class="feature-attributes"><div class="empty-selection">No location selected</div></div></div>
 
       <div class="divider"></div>
       <div class="score-section" id="score-section">
-        <div class="insight-highlight"><span class="insight-label">LAYER A · HABITAT SCORE SELECTION</span><strong id="insight-count">—</strong><span id="insight-sub">habitat polygons at or above threshold</span><div class="mini-track"><span id="mini-track-fill"></span></div></div>
-        <div class="distribution"><div class="control-label"><label>Score distribution</label><span class="tag">visible polygons</span></div><div id="distribution-bars" class="distribution-bars"></div></div>
+        <div class="insight-highlight"><span class="insight-label" id="insight-label">SCORE SUMMARY</span><strong id="insight-count">—</strong><span id="insight-sub">mean score in the pilot region</span><div class="mini-track"><span id="mini-track-fill"></span></div></div>
+        <div class="distribution"><div class="control-label"><label>Score distribution</label><span class="tag">all squares</span></div><div id="distribution-bars" class="distribution-bars"></div><p class="control-note" id="dist-note"></p></div>
+        <div class="validation-box" id="validation-box" hidden></div>
       </div>
 
       <div class="divider"></div>
-      <div class="metadata-card"><div class="control-label"><label>Product provenance</label></div><dl><dt>Layer</dt><dd id="meta-layer">—</dd><dt>Dataset date</dt><dd id="meta-date">—</dd><dt>Status</dt><dd id="meta-status">—</dd><dt>Resolution</dt><dd id="meta-resolution">—</dd><dt>Coverage</dt><dd id="meta-coverage">—</dd><dt>Source</dt><dd id="meta-source">—</dd></dl><p class="control-note" id="meta-description"></p></div>
-      <div class="info-note"><span>ⓘ</span><p><b>Real data:</b> Sentinel-2 single-day scenes (Planetary Computer) and yearly mosaics (EOX), NASA VIIRS &amp; MODIS NDVI, DLR crop types &amp; forest structure, Copernicus tree cover, protected areas (WDPA), live weather (Open-Meteo). <b>Demo only:</b> the habitat score model. Not a hunting recommendation; always follow local law.</p></div>
+      <div class="metadata-card"><div class="control-label"><label>Product provenance</label></div><dl><dt>Product</dt><dd id="meta-layer">—</dd><dt>Data date</dt><dd id="meta-date">—</dd><dt>Status</dt><dd id="meta-status">—</dd><dt>Resolution</dt><dd id="meta-resolution">—</dd><dt>Coverage</dt><dd id="meta-coverage">—</dd><dt>Sources</dt><dd id="meta-source">—</dd></dl><p class="control-note" id="meta-description"></p></div>
+      <div class="info-note"><span>ⓘ</span><p><b>All data is real and open:</b> Copernicus Sentinel-2, ESA WorldCover, OpenStreetMap, GBIF sightings, NASA, DLR, Copernicus Land, WDPA, Open-Meteo. Scores are a first version (v1): relative habitat and biodiversity indices, not counts of animals or species. Not a hunting recommendation; always follow local law.</p></div>
       <p class="footer-links">© 2026 Surrey AI Imaging Ltd · <a href="./docs/data-guide.html">Data guide</a> · <a href="./data/layers.json" target="_blank" rel="noopener">layers.json</a></p>
     </aside>
   </main>
@@ -126,46 +138,40 @@
   <!-- ===== Phone tab bar ===== -->
   <nav class="mobile-tabs" aria-label="Sections">
     <button type="button" data-tab="map" class="active">◍<span>Map</span></button>
-    <button type="button" data-tab="layers">☰<span>Layers</span></button>
-    <button type="button" data-tab="insights">≋<span>Conditions</span></button>
+    <button type="button" data-tab="layers">☰<span>Explore</span></button>
+    <button type="button" data-tab="insights">≋<span>Insights</span></button>
   </nav>
 </div>
 
 <!-- ===== How-to-use guide ===== -->
 <dialog id="help" class="help" aria-labelledby="help-title">
   <form method="dialog" class="help-close-row"><button class="collapse-btn" aria-label="Close guide">✕</button></form>
-  <h2 id="help-title">How to use the Wildlife Habitat Explorer</h2>
-  <p class="help-lead">A satellite-powered map for hunters. Real Earth-observation layers show <b>where</b> habitat is good, and live conditions show <b>when</b> to go.</p>
+  <h2 id="help-title">How to use WildScope</h2>
+  <p class="help-lead">WildScope turns free satellite and map data into simple scores for every 200 m square: <b>where wildlife can live</b>, <b>where nature is richest</b>, and <b>when to go</b> if you hunt. The pilot region is Freiburg and the western Black Forest (Germany); the method works anywhere.</p>
   <ol class="help-steps">
-    <li><b>Start on the globe.</b> It spins until you touch it. Press <b>✈ Fly to Black Forest pilot</b> to zoom into the pilot region.</li>
-    <li><b>Switch layers on in "Layers &amp; filters"</b> (left). Each layer has a toggle, an opacity slider and a legend. Layers marked <span class="real-tag">REAL</span> are satellite or official data; <span class="syn-tag">DEMO</span> layers are fabricated placeholders.</li>
-    <li><b>Read the live conditions</b> (right). Wind, temperature, rain, sunrise/sunset, legal daylight window and moon phase are for the map centre. <b>Click any spot</b> to get conditions there. The green advice box tells you where to stand so your scent drifts away from game.</li>
-    <li><b>Preview the habitat score</b> with <b>▶ Preview habitat score model</b>. Small patches are coloured by score (yellow = low, dark green = high); zoomed out they show as dots. Use the slider to hide weak patches and click one: <b>"Why this score"</b> shows each indicator's value, its weight and the points it adds.</li>
-    <li><b>Search a place</b> (top left of the map): type a town, village, mountain or coordinates like "48.28, 8.17" and press Enter. <b>Labels</b> shows place names and roads on the satellite map.</li>
-    <li><b>Go back in time</b> with "Dataset date", for example Sentinel-2 imagery from 2016 to 2024 or crop maps from 2017 to 2024.</li>
-    <li><b>Load your own Revier</b> (left panel) as a GeoJSON file to outline your hunting ground and get conditions there. It never leaves your browser.</li>
-    <li><b>Export</b> the visible polygons as GeoJSON, or <b>Copy view</b> to share coordinates.</li>
+    <li><b>Pick a mode</b> at the top of the left panel: <b>Habitat</b> (one species), <b>Biodiversity</b> (variety and naturalness of the landscape) or <b>Hunting</b> (habitat plus live wind, light and your own hunting ground).</li>
+    <li><b>Read the colours.</b> Blue squares score low, red squares score high. Scores are relative within the pilot region.</li>
+    <li><b>Build your own score.</b> Each indicator has a tick box and a weight slider. Untick one, or change its weight, and the map recalculates instantly.</li>
+    <li><b>Click any square</b> to see its score and why: every indicator's value, its weight and the points it adds, plus the real measurements behind it (tree cover, NDVI, distance to the nearest road, and so on).</li>
+    <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real wildlife sightings (GBIF).</li>
+    <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
+    <li><b>Search a place</b> (top left of the map) or press <b>✈ Fly to pilot region</b>. <b>Labels</b> adds place names and roads.</li>
+    <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>
-  <h3>Three different questions</h3>
+  <h3>The three modes</h3>
   <dl class="help-defs">
-    <dt>Layer A · habitat</dt><dd>Is this a good place for the species? Satellite indicators, weeks to seasons. (The habitat score.)</dd>
-    <dt>Layer B · use</dt><dd>Is the species using it now? Needs sightings and camera data, coming with partner hunting grounds.</dd>
-    <dt>Layer C · activity</dt><dd>Will I see one on this visit? Wind, weather, light, time of day. (The live conditions.)</dd>
+    <dt>Habitat</dt><dd>Is this a good place for roe deer or wild boar? Cover, forest edges, food, quiet, water and moisture, from Sentinel-2, ESA WorldCover and OpenStreetMap.</dd>
+    <dt>Biodiversity</dt><dd>How varied and natural is the landscape? Habitat variety, natural cover, spectral diversity of the vegetation, quiet and water. A proxy for biodiversity potential, not a species count.</dd>
+    <dt>Hunting</dt><dd>The habitat score plus live wind and scent direction, sunrise, sunset, moon, and your private hunting-ground boundary.</dd>
   </dl>
-  <h3>What each layer means</h3>
-  <dl class="help-defs">
-    <dt>Sentinel-2 scenes by date (true colour, NDVI, cloud mask)</dt><dd>The real Sentinel-2 picture of ONE day, 10 m, exactly like the Copernicus Browser. Pick the day with the "Date" box in the layer row. 5 Oct is clear; 22 Oct shows clouds (turn on the cloud mask to see them classified). Zoom in past level 8 to see it.</dd>
-    <dt>Sentinel-2 cloud-free yearly mosaic</dt><dd>One clean picture per year (2016–2024, EOX), with all clouds removed by combining many dates. Good as a background, but it is not a single day.</dd>
-    <dt>Vegetation greenness (NDVI, NASA)</dt><dd>Coarse 250 m greenness averaged over 8 days (NASA MODIS). Good for the big picture; for field-level detail use the Sentinel-2 NDVI layer.</dd>
-    <dt>Daily satellite view (NASA VIIRS)</dt><dd>A 375 m picture of Europe from about 2 days ago, showing current cloud and snow. Very blurry when zoomed in; black means no image for that strip yet.</dd>
-    <dt>Crop types (DLR)</dt><dd>Which crop grows in each field, 2017 to 2024. Maize and cereals attract wild boar.</dd>
-    <dt>Canopy cover and height (DLR)</dt><dd>How closed and how tall the forest is: shelter, shade, young vs mature forest.</dd>
-    <dt>Clearings &amp; canopy loss (DLR)</dt><dd>Where trees were lost 2018 to 2021. Clearings regrow fresh food that deer seek.</dd>
-    <dt>Tree cover density (Copernicus)</dt><dd>Percentage of tree cover across Europe.</dd>
-    <dt>Protected areas</dt><dd>Reserves, national parks and Natura 2000 sites, where hunting may be restricted.</dd>
-    <dt>Habitat score (demo)</dt><dd>Will combine vegetation, moisture, forest structure, clearings, farmland and water into one 0–100 score per area. Coming from SAIIL's Sentinel-2 processing.</dd>
-  </dl>
-  <p class="control-note">Scores are relative habitat indices, not probabilities of seeing an animal. Good habitat is not permission to hunt: hunt only in your authorised Revier and in the open season. Satellites cannot see the animals themselves.</p>
+  <p class="control-note">Scores are relative indices, not probabilities of seeing an animal. Satellites cannot see the animals themselves. Good habitat is not permission to hunt: always follow local law.</p>
+</dialog>
+
+<!-- ===== Method (filled from data/scores/grid.json) ===== -->
+<dialog id="method" class="help" aria-labelledby="method-title">
+  <form method="dialog" class="help-close-row"><button class="collapse-btn" aria-label="Close method">✕</button></form>
+  <h2 id="method-title">How the score works</h2>
+  <div id="method-body"><p class="control-note">Loading…</p></div>
 </dialog>
 
 <noscript><div class="no-script">Enable JavaScript to use the interactive map.</div></noscript>

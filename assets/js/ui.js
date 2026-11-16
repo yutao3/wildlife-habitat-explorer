@@ -212,8 +212,8 @@ export function renderFeature({ props, geometry, layer, version, lngLat, synthet
   $('feature-card').classList.toggle('is-synthetic', !!synthetic);
 }
 export function clearFeature() {
-  setText('feature-name', 'Select a polygon'); setText('feature-type', 'Map detail');
-  $('feature-caption').textContent = 'Click any habitat or change polygon on the map to see its score, area, date and indicators.';
+  setText('feature-name', 'Click the map'); setText('feature-type', 'Map detail');
+  $('feature-caption').textContent = 'Click any square to see its score and why: each indicator, its weight and the real measurements behind it.';
   $('feature-attributes').replaceChildren(el('div', { class: 'empty-selection' }, 'No location selected'));
   $('feature-card').classList.remove('is-synthetic');
 }
