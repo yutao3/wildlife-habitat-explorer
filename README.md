@@ -25,6 +25,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.6 (Nov 2026).** Light side panels restored (the dark filter in v1.5 cost too much graphics power and could stall or reload the page on some machines). Biodiversity mode has its own brown-to-green colour ramp and shows the Biodiversity Net Gain baseline card at the top of the insights. Choosing a new place now supersedes an analysis that is still downloading. The globe shows the five free satellite missions behind the site on to-scale orbits: Sentinel-2 (786 km, scores), Sentinel-1 (693 km, crop and forest maps), Terra MODIS (705 km, greenness), Suomi NPP VIIRS (824 km, daily view) and the ISS with the GEDI laser (420 km, forest height).
 
+**v1.7 (Nov 2026).** **▭ Draw area:** drag a box on the map and it is scored (works on the 3D and the simple 2D map, mouse and touch). Area sizes now go up to **48 × 48 km**: up to 12 km at 50 m squares, 13–24 km at 100 m, 25–48 km at 200 m; the browser always handles about 1.4 million pixels per layer, so the load on the user's machine stays the same (measured for 48 km on the public data services: 2.4 s download, 1.2 s calculation). Large boxes ask OpenStreetMap for main roads only. A loaded hunting-ground boundary has a **Score it** button. One analysis fills all three modes; **Export** names the GeoTIFF after the area and detail. Whole countries are out of reach for a browser and are the job of the weekly server pipeline.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

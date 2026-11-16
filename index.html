@@ -13,9 +13,9 @@
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="preload" href="./data/scores/grid.bin" as="fetch" crossorigin>
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261121a" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261122a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261121a"></script>
+  <script type="module" src="./assets/app.js?v=20261122a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -77,7 +77,8 @@
               <option value="38.55,-78.45,10">Shenandoah, Virginia, USA</option>
               <option value="-24.99,31.59,10,biodiversity">Kruger (Skukuza), South Africa · biodiversity</option>
             </select>
-          <button type="button" class="dock-btn primary" id="analyse-btn" title="Score the area in view with live satellite data: up to 12 km at 50 m detail, or up to 24 km at 100 m">◎ Analyse this area</button>
+          <button type="button" class="dock-btn primary" id="analyse-btn" title="Score the area in view with live satellite data: up to 12 km at 50 m detail, 24 km at 100 m, or 48 km at 200 m">◎ Analyse this area</button>
+          <button type="button" class="dock-btn" id="draw-btn" title="Drag a box on the map to choose exactly the land you want scored (4 to 48 km wide)">▭ Draw area</button>
           <button type="button" class="dock-btn" id="pilot-btn" hidden>↩ Back to pilot</button>
           <button type="button" id="fly-btn" class="dock-btn">✈ Pilot region</button>
           <button type="button" id="globe-btn" class="dock-btn ghost" hidden>◍ Globe</button>
@@ -120,7 +121,7 @@
         <div class="control-label"><label for="revier-file">My hunting ground</label><span class="tag">private</span></div>
         <p class="control-note">Load your hunting-ground boundary (in Germany: your Revier) as GeoJSON in longitude/latitude. It stays in this browser and is never uploaded.</p>
         <label class="action secondary file-btn"><input type="file" id="revier-file" accept=".geojson,.json,application/geo+json,application/json"><span aria-hidden="true">⤒</span> Load boundary</label>
-        <div class="revier-info" id="revier-info" hidden><div class="attribute"><span id="revier-name">My hunting ground</span><b id="revier-area">—</b></div><div class="revier-actions"><button type="button" class="action secondary" id="revier-zoom">Zoom to it</button><button type="button" class="action secondary" id="revier-clear">Remove</button></div></div>
+        <div class="revier-info" id="revier-info" hidden><div class="attribute"><span id="revier-name">My hunting ground</span><b id="revier-area">—</b></div><div class="revier-actions"><button type="button" class="action" id="revier-analyse" title="Score the land around this boundary with live satellite data">Score it</button><button type="button" class="action secondary" id="revier-zoom">Zoom to it</button><button type="button" class="action secondary" id="revier-clear">Remove</button></div></div>
         <p class="legal-note"><b>Good habitat is not permission to hunt.</b> Hunt only where you are authorised, in the open season, under your local law (in Germany: your own Revier and the Jagdzeit of your federal state).</p>
       </div>
 
@@ -181,7 +182,7 @@
     <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real deer or wild boar sightings (GBIF), compared fairly with where people report other mammals. <b>Test each indicator on its own</b> shows which indicators the animals really follow; in an analysed area with 40 or more sightings you can <b>tune the weights</b> to them, and WildScope keeps the result only if it beats the pilot weights on held-out ground. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
     <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
     <li><b>Search a place</b> (top left of the map) or press <b>✈ Pilot region</b>. <b>Labels</b> adds place names and roads.</li>
-    <li><b>Anywhere in the world:</b> pick one from <b>🌍 Try a place</b>, or search or zoom to any town or valley and press <b>◎ Analyse this area</b>. WildScope finds the clearest recent Sentinel-2 image, downloads land cover, roads, water and sightings for up to 12 × 12 km, and scores it at 50 m detail in about a minute. The result stays in your browser, and <b>⊕ Copy link</b> gives a link that opens the same analysis for anyone.</li>
+    <li><b>Anywhere in the world:</b> pick one from <b>🌍 Try a place</b>, or search or zoom to any town or valley and press <b>◎ Analyse this area</b>, or press <b>▭ Draw area</b> and drag a box over exactly the land you want (up to 48 × 48 km; larger boxes use coarser squares). One analysis fills all three modes, and <b>Export</b> saves the score on screen as a GeoTIFF. WildScope finds the clearest recent Sentinel-2 image, downloads land cover, roads, water and sightings for up to 12 × 12 km, and scores it at 50 m detail in about a minute. The result stays in your browser, and <b>⊕ Copy link</b> gives a link that opens the same analysis for anyone.</li>
     <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>
   <h3>The three modes</h3>

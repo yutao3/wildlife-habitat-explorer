@@ -95,7 +95,9 @@ export async function fetchInputs(g, onStep = () => {}) {
   const off = parseFloat(scene.properties['s2:processing_baseline'] || '0') >= 4 ? 2000 : 0;   // since 2022: values stored + 1000
   const s2 = `collection=sentinel-2-l2a&item=${scene.id}`;
   onStep(`Downloading land cover and Sentinel-2 (${scene.properties.datetime.slice(0, 10)})…`);
-  const roadsQ = `[out:json][timeout:60];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});out skel geom;`;
+  const big = (bbox[3] - bbox[1]) * 110.54 > 24;   // large boxes: main roads only, or the volunteer servers time out
+  const roadTypes = big ? 'motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link' : 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
+  const roadsQ = `[out:json][timeout:60];way["highway"~"^(${roadTypes})$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});out skel geom;`;
   const waterQ = `[out:json][timeout:60];(way["waterway"~"^(river|stream|canal)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});way["natural"="water"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}););out skel geom;`;
   const osmP = Promise.all([overpass(roadsQ).catch(e => ({ error: e.message })), overpass(waterQ).catch(e => ({ error: e.message }))]);
   const [wcLayers, nd, nm, sc] = await Promise.all([
@@ -113,7 +115,7 @@ export async function fetchInputs(g, onStep = () => {}) {
   // the caller paints the scores without them and refreshes when "osm" resolves.
   const osm = osmP.then(([roads, water]) => ({ roads: Array.isArray(roads) ? roads : null, water: Array.isArray(water) ? water : [], osmError: roads.error || water.error || null }));
   return { W, H, B: bbox, wc, ndvi, ndmi, scl, roads: null, water: [], osm,
-    scene: { id: scene.id, date: scene.properties.datetime.slice(0, 10), cloud: scene.properties['eo:cloud_cover'] } };
+    scene: { id: scene.id, date: scene.properties.datetime.slice(0, 10), cloud: scene.properties['eo:cloud_cover'], partial: !covers(scene.bbox, bbox) } };
 }
 
 /** Indicators per square. inputs = {W, H, B, wc, ndvi, ndmi, scl, roads, water}; S = pixels per square side. */

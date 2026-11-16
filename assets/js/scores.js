@@ -5,7 +5,7 @@
        score = Σ (weight × indicator) / Σ weight            (ticked indicators only)
    and draws the result as an image overlay (blue = low, red = high). */
 
-import { el } from './ui.js?v=20261121a';
+import { el } from './ui.js?v=20261122a';
 
 const RAMPS = {
   habitat: [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']],   // blue → red

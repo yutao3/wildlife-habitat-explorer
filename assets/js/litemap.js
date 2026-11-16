@@ -45,11 +45,13 @@ export class LiteMap {
 
   /* events */
   on(type, fn) {
-    if (type === 'click' || type === 'mousemove') this.lm.on(type, (e) => fn(evt(e, this.lm)));
+    if (type === 'click' || type === 'mousemove' || type === 'mousedown' || type === 'mouseup') this.lm.on(type, (e) => fn(evt(e, this.lm)));
     else if (type === 'moveend') this.lm.on('moveend', () => fn({}));
     return this;
   }
   once(type, fn) { if (type === 'moveend') this.lm.once('moveend', () => fn({})); else setTimeout(() => fn({}), 0); return this; }
+
+  setDrag(on) { if (on) this.lm.dragging.enable(); else this.lm.dragging.disable(); }
 
   /* camera */
   getCenter() { const c = this.lm.getCenter(); return { lng: c.lng, lat: c.lat }; }

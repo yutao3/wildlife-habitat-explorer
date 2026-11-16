@@ -482,3 +482,7 @@ select.dock-btn option { color: #10241b; background: #fff; }
 .score-head .tag { white-space: normal; max-width: 100%; }
 #app[data-mode="biodiversity"] .mode-switch [aria-selected="true"] { background: #0f6b62; }
 #app[data-mode="biodiversity"] .insight-highlight { border-color: #9fd3c0; }
+
+/* v1.7: draw your own area */
+.dock-btn.active { background: #fff; color: #0d2342; border-color: #fff; }
+body.drawing #map, body.drawing #map canvas, body.drawing .leaflet-container { cursor: crosshair !important; }

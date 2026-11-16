@@ -2,17 +2,17 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261121a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261121a';
-import { LayerManager } from './js/layers.js?v=20261121a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261121a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261121a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261121a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261121a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261121a';
-import { createOrbit } from './js/orbit.js?v=20261121a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261121a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261121a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261122a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261122a';
+import { LayerManager } from './js/layers.js?v=20261122a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261122a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261122a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261122a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261122a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261122a';
+import { createOrbit } from './js/orbit.js?v=20261122a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261122a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261122a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -78,7 +78,7 @@ async function initialiseLiteMap(reason) {
 }
 
 function onMapClick(e) {
-  const { map, mgr } = state; if (!map) return;
+  const { map, mgr } = state; if (!map || drawing || Date.now() - (state.skipClick || 0) < 400) return;
   condPinned = e.lngLat; updateConditions(e.lngLat, 'Clicked spot');
   setTimeout(() => { condPinned = null; }, 30000);   // map centre takes over again after 30 s of panning
   const ids = mgr ? mgr.queryLayerIds() : [];
@@ -590,10 +590,10 @@ function selectCell(i, lngLat, quiet) {
 }
 
 /* ---------- analyse any area: the same pipeline, run in the browser at 50 m ---------- */
-const AREA = { minKm: 4, fineKm: 12, maxKm: 24, cacheDays: 14 };
+const AREA = { minKm: 4, fineKm: 12, midKm: 24, maxKm: 48, cacheDays: 14 };
 /** Detail follows the size: up to 12 km → 50 m squares from 10 m pixels; 13–24 km → 100 m squares from 20 m pixels.
     Either way the browser handles at most about 1.4 million pixels per layer, which a normal laptop or phone does in under a second. */
-const detailFor = (km) => (km > AREA.fineKm ? { cellM: 100, pxM: 20 } : { cellM: 50, pxM: 10 });
+const detailFor = (km) => (km > AREA.midKm ? { cellM: 200, pxM: 40 } : km > AREA.fineKm ? { cellM: 100, pxM: 20 } : { cellM: 50, pxM: 10 });
 function viewKm() {
   const c = state.map.getCenter(), b = state.map.getBounds();
   const kx = (b.getEast() - b.getWest()) * 111.32 * Math.cos(c.lat * Math.PI / 180), ky = (b.getNorth() - b.getSouth()) * 110.54;
@@ -601,7 +601,7 @@ function viewKm() {
 }
 function updateDockHint() {
   if (!state.map || running) return;
-  if (state.map.getZoom() < 9) { setText('dock-hint', state.area ? 'Click any square to see why it scores as it does' : 'Go anywhere on Earth, then press Analyse for live satellite scores'); return; }
+  if (state.map.getZoom() < 8) { setText('dock-hint', state.area ? 'Click any square to see why it scores as it does' : 'Go anywhere on Earth, then press Analyse for live satellite scores'); return; }
   const km = viewKm(); setText('dock-hint', `Analyse will score about ${km} × ${km} km here at ${detailFor(km).cellM} m detail`);
 }
 function showAreaBox(b) {
@@ -626,12 +626,36 @@ const areaDb = () => new Promise((res, rej) => { const r = indexedDB.open('wilds
 async function cacheGet(key) { try { const db = await areaDb(); return await new Promise(r => { const q = db.transaction('areas').objectStore('areas').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
 async function cachePut(key, value) { try { const db = await areaDb(); db.transaction('areas', 'readwrite').objectStore('areas').put(value, key); } catch { /* private mode: no cache */ } }
 
+/* ---------- draw your own area: drag a box on the map, release, and it is scored ---------- */
+let drawing = null;
+const boxOf = (a, b) => [Math.min(a.lng, b.lng), Math.min(a.lat, b.lat), Math.max(a.lng, b.lng), Math.max(a.lat, b.lat)];
+const boxKm = (b) => [(b[2] - b[0]) * 111.32 * Math.cos((b[1] + b[3]) / 2 * Math.PI / 180), (b[3] - b[1]) * 110.54];
+function setPan(on) { const m = state.map; if (state.lite) m.setDrag(on); else if (on) m.dragPan.enable(); else m.dragPan.disable(); }
+function startDraw() {
+  if (!state.map) return; if (drawing) { stopDraw(); return; }
+  drawing = { a: null }; setPan(false); state.spinner?.stop(); document.body.classList.add('drawing'); $('draw-btn').classList.add('active');
+  setText('dock-hint', `Drag a box over the land you want scored (${AREA.minKm} to ${AREA.maxKm} km wide). Esc cancels.`);
+}
+function stopDraw() { if (!drawing) return; drawing = null; setPan(true); document.body.classList.remove('drawing'); $('draw-btn').classList.remove('active'); updateDockHint(); }
+function drawDown(e) { if (drawing) { drawing.a = e.lngLat; e.preventDefault?.(); } }
+function drawMove(e) {
+  if (!drawing?.a) return; const b = boxOf(drawing.a, e.lngLat); showAreaBox(b); const [kx, ky] = boxKm(b);
+  setText('dock-hint', `${kx.toFixed(1)} × ${ky.toFixed(1)} km · release to score a ${Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.ceil(Math.max(kx, ky))))} km square at ${detailFor(Math.ceil(Math.max(kx, ky))).cellM} m detail`);
+}
+function drawUp(e) {
+  if (!drawing?.a) return; const b = boxOf(drawing.a, e.lngLat); stopDraw(); state.skipClick = Date.now();
+  const km = Math.max(...boxKm(b));
+  if (km < 0.3) { showAreaBox(state.area ? state.grid.meta.bbox : null); return; }   // a click, not a drag
+  analyseArea({ center: { lat: (b[1] + b[3]) / 2, lng: (b[0] + b[2]) / 2 }, sizeKm: Math.ceil(km) });
+  if (km > AREA.maxKm) warn(`The browser can score up to ${AREA.maxKm} × ${AREA.maxKm} km at a time, so this scores the middle of your box. Whole regions and countries need the weekly pipeline on our own server.`);
+}
+
 let runId = 0, running = 0;   // a newer analysis supersedes an older one that is still downloading
 /** opts.center / opts.sizeKm: analyse a given place (example places, shared links); otherwise the area in view. */
 async function analyseArea(opts = {}) {
   if (!state.map || !state.grid) return;
   const fromView = !opts.center;
-  if (fromView && state.map.getZoom() < 9) { warn('Zoom in to the area you want (a town or valley, zoom level 10 or closer), then press "Analyse this area". Or pick one from "Try a place".'); return; }
+  if (fromView && state.map.getZoom() < 8) { warn('Zoom in to the area you want, press "Draw area" and drag a box, or pick one from "Try a place". The browser can score up to 48 × 48 km at a time.'); return; }
   const run = ++runId; running++; const stale = () => run !== runId; $('map-alert').hidden = true;
   const c = opts.center || state.map.getCenter();
   const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(opts.sizeKm || viewKm())));
@@ -664,6 +688,7 @@ async function analyseArea(opts = {}) {
       if (res.osmError === 'pending') setText('map-status', `${base} · roads and water still loading…`);
       else {
         setText('map-status', `${base}${res.cached ? ' · from this browser\'s cache' : ''}`);
+        if (res.scene.partial && first) warn('The clearest satellite image covers only part of this box, so greenness and moisture are missing for the rest. The other indicators still apply. A smaller box avoids this.');
         if (res.osmError) warn(`OpenStreetMap was busy, so ${res.hasRoads ? 'rivers' : 'roads and rivers'} could not be loaded for this area. The scores use the other indicators. Press "Analyse this area" again in a minute to add them.`);
       }
     };
@@ -720,7 +745,7 @@ function buildAreaMeta(pm, r, c, sizeKm) {
     check('wild_boar', sightings.boar, 'wild boar', '');
   }
   presets.biodiversity.status = (richness?.records?.length || 0) >= 300 ? 'Nature only · tested here' : 'Nature only · untested here';
-  if (richness?.records?.length) validation.biodiversity = { records: richness.records, total: richness.total, blockM: sizeKm > AREA.fineKm ? 2000 : 1000 };
+  if (richness?.records?.length) validation.biodiversity = { records: richness.records, total: richness.total, blockM: sizeKm > AREA.midKm ? 4000 : sizeKm > AREA.fineKm ? 2000 : 1000 };
   presets.biodiversity.noValidation = 'Waiting for species records from GBIF, or too few exist here for a check. A proper test needs wildlife surveys with known effort (for example bird-atlas squares).';
   const label = `${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}`;
   return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.5 · analysed in your browser', region: label, region_short: 'Your analysed area',
@@ -775,12 +800,13 @@ function renderMethod() {
 /* ---------- export: the score you built, as a GeoTIFF for QGIS ---------- */
 function downloadScore() {
   const g = state.grid; if (!g) return;
-  const name = `wildscope_${state.preset}_score_${g.meta.dates.sentinel2}.tif`;
+  const where = state.area ? `${state.area.lat.toFixed(3)}_${state.area.lng.toFixed(3)}_${state.area.km}km` : 'pilot';
+  const name = `wildscope_${state.preset}_${where}_${g.meta.cell_m}m_${g.meta.dates.sentinel2}.tif`;
   const blob = writeGeoTiff(g.scores, g.meta.cols, g.meta.rows, g.meta.bbox, -9999);
   const url = URL.createObjectURL(blob);
   const a = el('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
-  setText('map-status', `Downloaded ${name} (open it in QGIS; no-data = -9999)`);
+  setText('map-status', `Downloaded ${name} (open it in QGIS; no-data = -9999). Switch mode or species and export again for the other scores.`);
 }
 
 /* ---------- My Revier: a private hunting-ground boundary (never leaves the browser) ---------- */
@@ -853,6 +879,9 @@ function attachControls() {
   $('score-sightings').addEventListener('change', (e) => { state.sightingsOn = e.target.checked; if (state.map?.getLayer('sightings')) state.map.setLayoutProperty('sightings', 'visibility', state.sightingsOn && state.scoreOn ? 'visible' : 'none'); });
   $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; setText('opacity-label', `${e.target.value}%`); if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
   $('analyse-btn').addEventListener('click', () => analyseArea());
+  $('draw-btn').addEventListener('click', startDraw);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawing) { stopDraw(); showAreaBox(state.area ? state.grid.meta.bbox : null); } });
+  $('revier-analyse').addEventListener('click', () => { const b = state.revier?.bounds; if (b) analyseArea({ center: { lat: (b[1] + b[3]) / 2, lng: (b[0] + b[2]) / 2 }, sizeKm: Math.ceil(Math.max(...boxKm(b)) * 1.15) }); });
   $('place-select').addEventListener('change', (e) => { const v = e.target.value; if (v === 'pilot') { e.target.value = ''; if (state.pilotGrid && state.grid !== state.pilotGrid) backToPilot(); else flyToPilot(); return; } const a = parseArea(v); if (a) { if (a.mode && a.mode !== state.mode) setMode(a.mode); analyseArea(a); } });
   $('pilot-btn').addEventListener('click', backToPilot);
   $('score-smooth').addEventListener('change', (e) => { state.smooth = e.target.checked; if (state.map?.getLayer('score-grid') && !state.lite) state.map.setPaintProperty('score-grid', 'raster-resampling', state.smooth ? 'linear' : 'nearest'); document.body.classList.toggle('smooth-scores', state.smooth); });
@@ -935,6 +964,7 @@ async function start() {
   restoreRevier();
   if (!state.revier) scheduleConditions(true);
   state.map.on('moveend', updateDockHint);
+  for (const [ev, fn] of [['mousedown', drawDown], ['mousemove', drawMove], ['mouseup', drawUp], ['touchstart', drawDown], ['touchmove', drawMove], ['touchend', drawUp]]) state.map.on(ev, fn);
   const shared = parseArea(params.get('area'));
   if (shared && state.grid) { state.spinner?.stop(); if (state.projection === 'globe' && !state.lite) setProjection('mercator'); state.map.jumpTo({ center: [shared.center.lng, shared.center.lat], zoom: 10.5 }); analyseArea(shared); }
   else if (params.has('autofly')) setTimeout(() => flyToPilot(), 2500);
