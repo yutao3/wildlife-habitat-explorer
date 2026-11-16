@@ -486,3 +486,10 @@ select.dock-btn option { color: #10241b; background: #fff; }
 /* v1.7: draw your own area */
 .dock-btn.active { background: #fff; color: #0d2342; border-color: #fff; }
 body.drawing #map, body.drawing #map canvas, body.drawing .leaflet-container { cursor: crosshair !important; }
+
+/* v1.8: reset, cancel, elapsed time */
+.dock-btn.subtle { background: transparent; border-color: #ffffff40; color: #d7e6ff; padding: 0 14px; font-size: 12.5px; }
+.dock-btn.subtle:hover { background: #ffffff1f; }
+#area-progress-secs { color: #9fd9c4; font-variant-numeric: tabular-nums; min-width: 26px; }
+#area-cancel { border: 0; background: #ffffff1f; color: #fff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; font-size: 11px; line-height: 1; flex: none; }
+#area-cancel:hover { background: #ffffff40; }

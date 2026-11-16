@@ -2,17 +2,17 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261122a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261122a';
-import { LayerManager } from './js/layers.js?v=20261122a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261122a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261122a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261122a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261122a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261122a';
-import { createOrbit } from './js/orbit.js?v=20261122a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261122a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261122a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261123a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261123a';
+import { LayerManager } from './js/layers.js?v=20261123a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261123a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261123a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261123a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261123a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261123a';
+import { createOrbit } from './js/orbit.js?v=20261123a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261123a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261123a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -439,6 +439,7 @@ function richnessBlocks(v) {
   v.B = B; v.blocks = blocks; return blocks;
 }
 function spearman(x, y) {
+  if (x.some(Number.isNaN) || y.some(Number.isNaN)) return NaN;
   const rank = (a) => { const idx = a.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]); const r = new Array(a.length); for (let i = 0; i < idx.length;) { let j = i; while (j < idx.length && idx[j][0] === idx[i][0]) j++; for (let k = i; k < j; k++) r[idx[k][1]] = (i + j - 1) / 2; i = j; } return r; };
   const a = rank(x), b = rank(y), n = a.length; const ma = a.reduce((p, c) => p + c, 0) / n, mb = b.reduce((p, c) => p + c, 0) / n;
   let sab = 0, saa = 0, sbb = 0; for (let i = 0; i < n; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2; }
@@ -624,6 +625,7 @@ function drawSightings(v) {
 /* Results are kept in the browser (IndexedDB) so a reload or a shared link opens instantly. */
 const areaDb = () => new Promise((res, rej) => { const r = indexedDB.open('wildscope', 1); r.onupgradeneeded = () => r.result.createObjectStore('areas'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 async function cacheGet(key) { try { const db = await areaDb(); return await new Promise(r => { const q = db.transaction('areas').objectStore('areas').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
+async function cacheDelete(key) { try { const db = await areaDb(); db.transaction('areas', 'readwrite').objectStore('areas').delete(key); } catch { /* nothing stored */ } }
 async function cachePut(key, value) { try { const db = await areaDb(); db.transaction('areas', 'readwrite').objectStore('areas').put(value, key); } catch { /* private mode: no cache */ } }
 
 /* ---------- draw your own area: drag a box on the map, release, and it is scored ---------- */
@@ -650,6 +652,28 @@ function drawUp(e) {
   if (km > AREA.maxKm) warn(`The browser can score up to ${AREA.maxKm} × ${AREA.maxKm} km at a time, so this scores the middle of your box. Whole regions and countries need the weekly pipeline on our own server.`);
 }
 
+let stepTimer = 0;
+/** Stop whatever is downloading. The requests finish in the background and are ignored. */
+function cancelRuns() { runId++; running = 0; clearInterval(stepTimer); $('area-progress').hidden = true; }
+/** Back to the very start: pilot scores, default weights and filters, whole-Earth view. Also forgets the stored copy of the
+    area on screen, so a result that went wrong is fetched fresh next time. */
+function resetAll() {
+  cancelRuns(); if (drawing) stopDraw();
+  if (state.area?.key) cacheDelete(state.area.key);
+  if (state.pilotGrid) state.grid = state.pilotGrid;
+  Object.assign(state, { area: null, tuned: {}, weights: {}, minScore: 0, selectedCell: -1, scoreOn: true, sightingsOn: true, scoreOpacity: 0.75, smooth: false, preset: 'roe_deer', lastSpecies: 'roe_deer' });
+  $('score-threshold').value = 0; setText('threshold-label', '0'); document.querySelectorAll('[data-best]').forEach(b => b.classList.toggle('active', b.dataset.best === '0'));
+  $('score-visible').checked = true; $('score-sightings').checked = true; $('score-smooth').checked = false; $('score-opacity').value = 75; setText('opacity-label', '75%'); document.body.classList.remove('smooth-scores');
+  $('place-select').value = ''; $('pilot-btn').hidden = true; $('map-alert').hidden = true;
+  showAreaBox(null); highlightCell(-1); clearFeature(); state.popup?.remove();
+  const map = state.map;
+  if (map?.getLayer('score-grid')) { map.setPaintProperty('score-grid', 'raster-opacity', 0.75); if (!state.lite) map.setPaintProperty('score-grid', 'raster-resampling', 'nearest'); map.setLayoutProperty('score-grid', 'visibility', 'visible'); }
+  if (state.grid) { setText('metric-region', state.grid.meta.region_short); renderMethod(); setMode('habitat'); }
+  syncUrl();
+  if (state.lite) flyToPilot(1200); else backToGlobe();
+  setText('map-status', 'Reset: back to the start.'); updateDockHint();
+}
+
 let runId = 0, running = 0;   // a newer analysis supersedes an older one that is still downloading
 /** opts.center / opts.sizeKm: analyse a given place (example places, shared links); otherwise the area in view. */
 async function analyseArea(opts = {}) {
@@ -662,6 +686,8 @@ async function analyseArea(opts = {}) {
   const det = detailFor(sizeKm);
   const g = gridFor(c, sizeKm, det.cellM, det.pxM);
   const key = `v4:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
+  const t0 = Date.now(); clearInterval(stepTimer); setText('area-progress-secs', '');
+  stepTimer = setInterval(() => { if (stale()) return; setText('area-progress-secs', `${Math.round((Date.now() - t0) / 1000)} s`); }, 1000);
   const step = (t) => { $('area-progress').hidden = false; setText('area-progress-text', t); setText('map-status', t); };
   try {
     step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`); showAreaBox(g.bbox);
@@ -718,7 +744,7 @@ async function analyseArea(opts = {}) {
     }
   } catch (e) {
     if (!stale()) { warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`); showAreaBox(state.area ? state.grid.meta.bbox : null); }
-  } finally { loading(false); running--; if (!running) $('area-progress').hidden = true; }
+  } finally { loading(false); running = Math.max(0, running - 1); if (!running) { $('area-progress').hidden = true; clearInterval(stepTimer); } }
 }
 function buildAreaMeta(pm, r, c, sizeKm) {
   const { out, scene, sightings, richness } = r;
@@ -880,6 +906,8 @@ function attachControls() {
   $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; setText('opacity-label', `${e.target.value}%`); if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
   $('analyse-btn').addEventListener('click', () => analyseArea());
   $('draw-btn').addEventListener('click', startDraw);
+  $('reset-all').addEventListener('click', resetAll);
+  $('area-cancel').addEventListener('click', () => { cancelRuns(); showAreaBox(state.area ? state.grid.meta.bbox : null); setText('map-status', 'Cancelled.'); updateDockHint(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawing) { stopDraw(); showAreaBox(state.area ? state.grid.meta.bbox : null); } });
   $('revier-analyse').addEventListener('click', () => { const b = state.revier?.bounds; if (b) analyseArea({ center: { lat: (b[1] + b[3]) / 2, lng: (b[0] + b[2]) / 2 }, sizeKm: Math.ceil(Math.max(...boxKm(b)) * 1.15) }); });
   $('place-select').addEventListener('change', (e) => { const v = e.target.value; if (v === 'pilot') { e.target.value = ''; if (state.pilotGrid && state.grid !== state.pilotGrid) backToPilot(); else flyToPilot(); return; } const a = parseArea(v); if (a) { if (a.mode && a.mode !== state.mode) setMode(a.mode); analyseArea(a); } });

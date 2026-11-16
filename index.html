@@ -13,9 +13,9 @@
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="preload" href="./data/scores/grid.bin" as="fetch" crossorigin>
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261122a" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261123a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261122a"></script>
+  <script type="module" src="./assets/app.js?v=20261123a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -65,7 +65,7 @@
       </div>
 
       <div class="map-fly">
-        <div class="area-progress" id="area-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="area-progress-text"></span></div>
+        <div class="area-progress" id="area-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="area-progress-text"></span><span id="area-progress-secs"></span><button type="button" id="area-cancel" title="Stop this analysis" aria-label="Stop this analysis">✕</button></div>
         <div class="dock" role="group" aria-label="Choose a place to score">
           <select class="dock-btn place-select" id="place-select" aria-label="Try a place" title="Fly to an example place and analyse it with live satellite data">
               <option value="">🌍 Try a place…</option>
@@ -82,6 +82,7 @@
           <button type="button" class="dock-btn" id="pilot-btn" hidden>↩ Back to pilot</button>
           <button type="button" id="fly-btn" class="dock-btn">✈ Pilot region</button>
           <button type="button" id="globe-btn" class="dock-btn ghost" hidden>◍ Globe</button>
+          <button type="button" id="reset-all" class="dock-btn subtle" title="Stop anything that is loading and go back to the start: pilot scores, default weights and filters, whole-Earth view">↺ Reset</button>
         </div>
         <div class="dock-hint" id="dock-hint">Go anywhere on Earth, then press Analyse for live satellite scores</div>
       </div>

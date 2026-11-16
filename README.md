@@ -27,6 +27,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.7 (Nov 2026).** **▭ Draw area:** drag a box on the map and it is scored (works on the 3D and the simple 2D map, mouse and touch). Area sizes now go up to **48 × 48 km**: up to 12 km at 50 m squares, 13–24 km at 100 m, 25–48 km at 200 m; the browser always handles about 1.4 million pixels per layer, so the load on the user's machine stays the same (measured for 48 km on the public data services: 2.4 s download, 1.2 s calculation). Large boxes ask OpenStreetMap for main roads only. A loaded hunting-ground boundary has a **Score it** button. One analysis fills all three modes; **Export** names the GeoTIFF after the area and detail. Whole countries are out of reach for a browser and are the job of the weekly server pipeline.
 
+**v1.8 (Nov 2026).** **↺ Reset** in the bottom bar stops anything that is loading and returns to the start (pilot scores, default weights and filters, whole-Earth view); it also forgets the stored copy of the area on screen so it is fetched fresh next time. The progress pill shows elapsed seconds and has a ✕ to cancel. Satellite image requests time out after 25 s instead of 40 s.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

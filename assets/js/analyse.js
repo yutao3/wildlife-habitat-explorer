@@ -25,7 +25,7 @@ export function gridFor(center, sizeKm, cellM, pxM) {
 async function img(url, w, h) {
   let r;
   for (let attempt = 0; ; attempt++) {   // one retry: the free image service sometimes drops a tile
-    try { r = await fetch(url, { signal: AbortSignal.timeout(40000) }); if (r.ok) break; throw new Error(`image service HTTP ${r.status}`); }
+    try { r = await fetch(url, { signal: AbortSignal.timeout(25000) }); if (r.ok) break; throw new Error(`image service HTTP ${r.status}`); }
     catch (e) { if (attempt) throw new Error(e.name === 'TimeoutError' ? 'the satellite image service timed out' : e.message); }
   }
   const bm = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
