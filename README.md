@@ -13,6 +13,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 - **Self-checking anywhere:** deer (family Cervidae) and wild boar sightings are tested against other-mammal sightings (observer effort) for every analysed area. The pilot weights reached AUC 0.63 around Bath, UK (112 deer records) and 0.59 in Shenandoah, USA (243 white-tailed deer records), without any local fitting.
 - **Indicators one by one:** "Test each indicator on its own" shows every indicator's AUC alone. With 40+ sightings and 100+ background records the weights can be tuned locally; the tuned weights are kept only if they beat the pilot weights on held-out quarters of the area.
 
+**v1.4: demo polish (Nov 2026).** A large action dock at the bottom of the map (**Try a place · Analyse this area · Pilot region**) with a live hint of what will be scored; the analysed box is outlined and real sightings are drawn as dots; detail adapts to the area (up to 12 km at 50 m, 13–24 km at 100 m); progress shows in a small pill instead of covering the map; the opacity slider no longer overflows its box. Measured on the public site on 16 Nov 2026: first scores for a new 10 × 10 km area (New Forest, UK) in 2.7 s; the pilot weights scored AUC 0.62 there against 866 deer sightings.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

@@ -433,3 +433,35 @@ select.map-btn.place-select option { color: #10241b; background: #fff; }
 .ind-test-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .mini-btn { margin-top: 10px; width: 100%; border: 1px solid #167458; background: #fff; color: #167458; font: inherit; font-size: 12px; font-weight: 760; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .mini-btn:hover { background: #167458; color: #fff; }
+
+/* v1.4: action dock, progress pill, opacity line */
+.map-fly { flex-direction: column; align-items: center; gap: 7px; bottom: 62px; }
+.dock { display: flex; gap: 8px; align-items: center; padding: 7px; border-radius: 99px; background: #061224e0; border: 1px solid #9cc8ff40; box-shadow: 0 10px 34px #000b; backdrop-filter: blur(8px); }
+.dock-btn { height: 44px; padding: 0 18px; border-radius: 99px; border: 1px solid #ffffff2e; background: #14345fd9; color: #fff; font-family: inherit; font-size: 13.5px; font-weight: 760; white-space: nowrap; cursor: pointer; transition: background .15s, transform .15s; }
+.dock-btn:hover { background: #1d4a88; transform: translateY(-1px); }
+.dock-btn[hidden] { display: none; }
+.dock-btn.ghost { background: #ffffffeb; color: #18324f; border-color: #fff; }
+.dock-btn.primary { background: linear-gradient(135deg, #22ad82, #167458); border-color: #8ff3cfaa; font-size: 14.5px; padding: 0 22px; animation: dock-pulse 2.6s ease-out infinite; }
+.dock-btn.primary:hover { background: linear-gradient(135deg, #29c292, #1a8767); }
+.dock-btn.primary:disabled { opacity: .7; cursor: progress; animation: none; }
+@keyframes dock-pulse { 0% { box-shadow: 0 0 0 0 #2fd39e99; } 70%, 100% { box-shadow: 0 0 0 13px #2fd39e00; } }
+select.dock-btn { appearance: none; -webkit-appearance: none; max-width: 176px; padding-right: 34px; text-overflow: ellipsis;
+  background: #14345fd9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3C/svg%3E") no-repeat right 14px center; }
+select.dock-btn option { color: #10241b; background: #fff; }
+.dock-hint { font-size: 11.5px; font-weight: 650; color: #e4eeff; background: #061224c7; padding: 4px 12px; border-radius: 99px; }
+.area-progress { display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-radius: 99px; background: #061224f2; border: 1px solid #7ff0c880; color: #eafff7; font-size: 12.5px; font-weight: 700; box-shadow: 0 6px 24px #000a; max-width: min(560px, 86vw); }
+.area-progress[hidden] { display: none; }
+.area-progress .spinner { flex: none; }
+.op-line { display: grid; grid-template-columns: auto 1fr 38px; gap: 10px; align-items: center; font-size: 11.5px; font-weight: 650; color: #3e5a4c; margin: 6px 0 2px; }
+.op-line input { width: 100%; min-width: 0; accent-color: #167458; }
+.op-line strong { text-align: right; font-variant-numeric: tabular-nums; }
+.score-row { flex-wrap: wrap; justify-content: flex-start; gap: 6px 14px; }
+@media (prefers-reduced-motion: reduce) { .dock-btn.primary { animation: none; } .dock-btn { transition: none; } }
+@media (max-width: 760px) {
+  .map-fly { bottom: 44px; left: 50%; width: calc(100vw - 16px); }
+  .dock { flex-wrap: wrap; justify-content: center; border-radius: 20px; gap: 6px; }
+  .dock-btn { height: 40px; font-size: 12.5px; padding: 0 13px; }
+  .dock-btn.primary { font-size: 13px; padding: 0 16px; }
+  select.dock-btn { max-width: 150px; }
+  .dock-hint { display: none; }
+}

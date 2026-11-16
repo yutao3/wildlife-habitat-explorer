@@ -13,9 +13,9 @@
   <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
   <link rel="preload" href="./data/scores/grid.bin" as="fetch" crossorigin>
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261118a" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261119a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261118a"></script>
+  <script type="module" src="./assets/app.js?v=20261119a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -55,7 +55,18 @@
           </form>
           <div class="demo-flag" id="data-status"><span>◆</span> Loading…</div>
           <div class="wind-chip hunting-only" id="wind-chip" hidden></div>
-          <div class="area-actions"><button type="button" class="map-btn analyse-btn" id="analyse-btn" title="Run the WildScope pipeline for the area in view (up to 12 × 12 km, 50 m squares), anywhere Sentinel-2 and ESA WorldCover exist">◎ Analyse this area</button><select class="map-btn place-select" id="place-select" aria-label="Try a place" title="Fly to an example place and analyse it with live satellite data">
+          
+        </div>
+        <div class="map-switches">
+          <div class="seg-switch" role="group" aria-label="Projection"><button type="button" class="base active" data-projection="globe" aria-pressed="true">3D Globe</button><button type="button" class="base" data-projection="mercator" aria-pressed="false">2D</button></div>
+          <div class="seg-switch" role="group" aria-label="Base map"><button type="button" class="base" data-basemap="streets" aria-pressed="false">Map</button><button type="button" class="base active" data-basemap="satellite" aria-pressed="true">Satellite</button></div><div class="seg-switch"><button type="button" class="base active" id="labels-btn" aria-pressed="true" title="Show place names and roads on the satellite map">Labels</button></div>
+        </div>
+      </div>
+
+      <div class="map-fly">
+        <div class="area-progress" id="area-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="area-progress-text"></span></div>
+        <div class="dock" role="group" aria-label="Choose a place to score">
+          <select class="dock-btn place-select" id="place-select" aria-label="Try a place" title="Fly to an example place and analyse it with live satellite data">
               <option value="">🌍 Try a place…</option>
               <option value="pilot">Black Forest pilot, Germany (200 m, validated)</option>
               <option value="51.37,-2.40,10">Bath &amp; the Cotswold edge, UK</option>
@@ -64,15 +75,14 @@
               <option value="44.50,4.40,10">Ardèche, France</option>
               <option value="38.55,-78.45,10">Shenandoah, Virginia, USA</option>
               <option value="-24.99,31.59,10,biodiversity">Kruger (Skukuza), South Africa · biodiversity</option>
-            </select><button type="button" class="map-btn" id="pilot-btn" hidden>↩ Back to pilot region</button></div>
+            </select>
+          <button type="button" class="dock-btn primary" id="analyse-btn" title="Score the area in view with live satellite data: up to 12 km at 50 m detail, or up to 24 km at 100 m">◎ Analyse this area</button>
+          <button type="button" class="dock-btn" id="pilot-btn" hidden>↩ Back to pilot</button>
+          <button type="button" id="fly-btn" class="dock-btn">✈ Pilot region</button>
+          <button type="button" id="globe-btn" class="dock-btn ghost" hidden>◍ Globe</button>
         </div>
-        <div class="map-switches">
-          <div class="seg-switch" role="group" aria-label="Projection"><button type="button" class="base active" data-projection="globe" aria-pressed="true">3D Globe</button><button type="button" class="base" data-projection="mercator" aria-pressed="false">2D</button></div>
-          <div class="seg-switch" role="group" aria-label="Base map"><button type="button" class="base" data-basemap="streets" aria-pressed="false">Map</button><button type="button" class="base active" data-basemap="satellite" aria-pressed="true">Satellite</button></div><div class="seg-switch"><button type="button" class="base active" id="labels-btn" aria-pressed="true" title="Show place names and roads on the satellite map">Labels</button></div>
-        </div>
+        <div class="dock-hint" id="dock-hint">Go anywhere on Earth, then press Analyse for live satellite scores</div>
       </div>
-
-      <div class="map-fly"><button type="button" id="fly-btn" class="fly-btn">✈ Fly to pilot region</button><button type="button" id="globe-btn" class="fly-btn ghost" hidden>◍ Back to globe</button></div>
       <div class="map-bottom-left"><span class="map-coordinate" id="coordinates">Move pointer to read coordinates</span></div>
       <div class="map-bottom-right"><button type="button" id="copy-view" title="Copy the map centre coordinates">⊕ Copy view</button></div>
       <div class="map-alert" id="map-alert" hidden></div>
@@ -99,7 +109,8 @@
         <div class="control-label small ind-head"><label>Indicators <small>tick to include · slide to weight</small></label><button type="button" class="link-btn" id="preset-reset" hidden>Reset to recommended</button></div>
         <div id="indicator-list" class="indicator-list" role="group" aria-label="Indicators"></div>
         <div class="control-group"><div class="control-label"><label for="score-threshold">Show squares scoring at least</label><strong id="threshold-label">0</strong></div><div class="best-row" role="group" aria-label="Quick filter"><button type="button" class="seg active" data-best="0">All</button><button type="button" class="seg" data-best="30">Best 30%</button><button type="button" class="seg" data-best="10">Best 10%</button></div><input id="score-threshold" type="range" min="0" max="100" value="0" step="5"><div class="range-label"><span>0 · everything</span><span>100 · best only</span></div></div>
-        <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score</label><label class="check-row"><input type="checkbox" id="score-smooth"> Smooth</label><label class="op-row" for="score-opacity">Opacity <input id="score-opacity" type="range" min="10" max="100" step="5" value="75"></label></div>
+        <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score</label><label class="check-row"><input type="checkbox" id="score-smooth"> Smooth</label><label class="check-row" title="Dots where the animal was really reported (GBIF)"><input type="checkbox" id="score-sightings" checked> Sightings</label></div>
+        <div class="op-line"><label for="score-opacity">Opacity</label><input id="score-opacity" type="range" min="10" max="100" step="5" value="75"><strong id="opacity-label">75%</strong></div>
         <div class="score-actions"><button type="button" class="action secondary" id="method-btn">ⓘ How the score works</button><button type="button" class="action secondary" id="export-btn">↓ GeoTIFF for QGIS</button></div>
         <p class="control-note" id="score-note">Loading scores…</p>
       </section>
@@ -168,7 +179,7 @@
     <li><b>Click any square</b> to see its score and why: every indicator's value, its weight and the points it adds, plus the real measurements behind it (tree cover, NDVI, distance to the nearest road, and so on).</li>
     <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real deer or wild boar sightings (GBIF), compared fairly with where people report other mammals. <b>Test each indicator on its own</b> shows which indicators the animals really follow; in an analysed area with 40 or more sightings you can <b>tune the weights</b> to them, and WildScope keeps the result only if it beats the pilot weights on held-out ground. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
     <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
-    <li><b>Search a place</b> (top left of the map) or press <b>✈ Fly to pilot region</b>. <b>Labels</b> adds place names and roads.</li>
+    <li><b>Search a place</b> (top left of the map) or press <b>✈ Pilot region</b>. <b>Labels</b> adds place names and roads.</li>
     <li><b>Anywhere in the world:</b> pick one from <b>🌍 Try a place</b>, or search or zoom to any town or valley and press <b>◎ Analyse this area</b>. WildScope finds the clearest recent Sentinel-2 image, downloads land cover, roads, water and sightings for up to 12 × 12 km, and scores it at 50 m detail in about a minute. The result stays in your browser, and <b>⊕ Copy link</b> gives a link that opens the same analysis for anyone.</li>
     <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>

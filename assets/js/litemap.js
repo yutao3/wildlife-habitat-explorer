@@ -37,6 +37,7 @@ export class LiteMap {
     this.base[active]?.addTo(this.lm);
     this.sources = {}; this.layers = {};
     this.lm.createPane('scores'); this.lm.getPane('scores').style.zIndex = 380;
+    this.lm.createPane('marks'); this.lm.getPane('marks').style.zIndex = 385; this.lm.getPane('marks').style.pointerEvents = 'none';   // outlines and dots, always above the score image
     this.lm.createPane('labels'); this.lm.getPane('labels').style.zIndex = 390; this.lm.getPane('labels').style.pointerEvents = 'none';
     this.lite = true;
   }
@@ -98,7 +99,12 @@ export class LiteMap {
       const style = def.type === 'line'
         ? { color: p['line-color'] || '#fff', weight: p['line-width'] || 2, fill: false, dashArray: p['line-dasharray'] ? p['line-dasharray'].map(v => v * 4).join(' ') : null }
         : { stroke: false, fillColor: p['fill-color'] || '#ff7a00', fillOpacity: p['fill-opacity'] ?? 0.2 };
-      layer = L.geoJSON(src.data, { style: () => style, interactive: false, pane: 'scores' });
+      layer = L.geoJSON(src.data, { style: () => style, interactive: false, pane: 'marks' });
+      src.layers.push(layer);
+    } else if (def.type === 'circle') {
+      const p = def.paint || {};
+      layer = L.geoJSON(src.data, { interactive: false, pane: 'marks', pointToLayer: (f, latlng) => L.circleMarker(latlng, { pane: 'marks', interactive: false,
+        radius: p['circle-radius'] || 4, color: p['circle-stroke-color'] || '#fff', weight: p['circle-stroke-width'] || 1, fillColor: p['circle-color'] || '#111', fillOpacity: 1 }) });
       src.layers.push(layer);
     }
     if (!layer) return;

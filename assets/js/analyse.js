@@ -72,7 +72,7 @@ async function pickScene(bbox) {
 }
 
 /** Ask all Overpass mirrors at once and take the first answer: public servers are often busy, one is usually free. */
-async function overpass(q, timeoutMs = 30000) {
+async function overpass(q, timeoutMs = 75000) {   // patient: the map is already on screen while this runs
   const ask = async (e) => {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
@@ -95,8 +95,8 @@ export async function fetchInputs(g, onStep = () => {}) {
   const off = parseFloat(scene.properties['s2:processing_baseline'] || '0') >= 4 ? 2000 : 0;   // since 2022: values stored + 1000
   const s2 = `collection=sentinel-2-l2a&item=${scene.id}`;
   onStep(`Downloading land cover and Sentinel-2 (${scene.properties.datetime.slice(0, 10)})…`);
-  const roadsQ = `[out:json][timeout:40];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});out skel geom;`;
-  const waterQ = `[out:json][timeout:40];(way["waterway"~"^(river|stream|canal)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});way["natural"="water"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}););out skel geom;`;
+  const roadsQ = `[out:json][timeout:60];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});out skel geom;`;
+  const waterQ = `[out:json][timeout:60];(way["waterway"~"^(river|stream|canal)$"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]});way["natural"="water"](${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}););out skel geom;`;
   const osmP = Promise.all([overpass(roadsQ).catch(e => ({ error: e.message })), overpass(waterQ).catch(e => ({ error: e.message }))]);
   const [wcLayers, nd, nm, sc] = await Promise.all([
     Promise.all(wcIds.map(id => pcLayer(bbox, W, H, `collection=esa-worldcover&item=${id}&assets=map`))),

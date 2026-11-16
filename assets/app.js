@@ -2,20 +2,20 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261118a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261118a';
-import { LayerManager } from './js/layers.js?v=20261118a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261118a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261118a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261118a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261118a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261118a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261118a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261118a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261119a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261119a';
+import { LayerManager } from './js/layers.js?v=20261119a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261119a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261119a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261119a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261119a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261119a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261119a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261119a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
-  mode: 'habitat', preset: 'roe_deer', grid: null, weights: {}, tuned: {}, area: null, minScore: 0, scoreOn: true, scoreOpacity: 0.75 };
+  mode: 'habitat', preset: 'roe_deer', grid: null, weights: {}, tuned: {}, area: null, minScore: 0, scoreOn: true, scoreOpacity: 0.75, sightingsOn: true };
 
 /* ---------- messages & loading ---------- */
 const fmtLL = (lat, lng, d = 3) => `${Math.abs(lat).toFixed(d)}° ${lat < 0 ? 'S' : 'N'}, ${Math.abs(lng).toFixed(d)}° ${lng < 0 ? 'W' : 'E'}`;
@@ -338,6 +338,7 @@ function drawScore() {
     map.addLayer({ id: 'score-cell', type: 'line', source: 'score-cell', paint: { 'line-color': '#ffffff', 'line-width': 3 } });
   }
   map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none');
+  if (map.moveLayer) for (const id of ['area-box', 'sightings', 'score-cell']) if (map.getLayer(id)) map.moveLayer(id);
   if (state.selectedCell >= 0 && state.selectedCell !== undefined) selectCell(state.selectedCell, null, true);
 }
 
@@ -426,6 +427,7 @@ function updateScoreInsights(st) {
   // Evidence: real sightings from GBIF, compared with where people report other mammals (observer effort)
   const v = g.meta.validation?.[p.species || ''];
   const box = $('validation-box'); box.hidden = false;
+  drawSightings(v && v.cells.length ? v : null);
   if (!v) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.'));
   else if (v.cells.length < 30) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sighting${v.cells.length === 1 ? '' : 's'}`)), el('p', { class: 'control-note' }, p.noValidation || `Only ${v.cells.length} sightings with exact locations: too few to test.`));
   else {
@@ -518,7 +520,37 @@ function selectCell(i, lngLat, quiet) {
 }
 
 /* ---------- analyse any area: the same pipeline, run in the browser at 50 m ---------- */
-const AREA = { cellM: 50, pxM: 10, maxKm: 12, minKm: 4, cacheDays: 14 };
+const AREA = { minKm: 4, fineKm: 12, maxKm: 24, cacheDays: 14 };
+/** Detail follows the size: up to 12 km → 50 m squares from 10 m pixels; 13–24 km → 100 m squares from 20 m pixels.
+    Either way the browser handles at most about 1.4 million pixels per layer, which a normal laptop or phone does in under a second. */
+const detailFor = (km) => (km > AREA.fineKm ? { cellM: 100, pxM: 20 } : { cellM: 50, pxM: 10 });
+function viewKm() {
+  const c = state.map.getCenter(), b = state.map.getBounds();
+  const kx = (b.getEast() - b.getWest()) * 111.32 * Math.cos(c.lat * Math.PI / 180), ky = (b.getNorth() - b.getSouth()) * 110.54;
+  return Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(Math.min(kx, ky) * 0.8)));
+}
+function updateDockHint() {
+  if (!state.map || analysing) return;
+  if (state.map.getZoom() < 9) { setText('dock-hint', state.area ? 'Click any square to see why it scores as it does' : 'Go anywhere on Earth, then press Analyse for live satellite scores'); return; }
+  const km = viewKm(); setText('dock-hint', `Analyse will score about ${km} × ${km} km here at ${detailFor(km).cellM} m detail`);
+}
+function showAreaBox(b) {
+  const map = state.map; if (!map) return;
+  const data = b ? { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] } } : { type: 'FeatureCollection', features: [] };
+  const src = map.getSource('area-box');
+  if (src) src.setData(data);
+  else { map.addSource('area-box', { type: 'geojson', data }); map.addLayer({ id: 'area-box', type: 'line', source: 'area-box', paint: { 'line-color': '#7ff0c8', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } }); }
+}
+/** Dots where the animal was really reported, so the evidence check can be seen on the map. */
+function drawSightings(v) {
+  const map = state.map, g = state.grid; if (!map || !g) return;
+  const pts = !v ? [] : v.points || v.cells.map(i => { const [w, s, e, n] = g.cellBounds(i); return [(w + e) / 2, (s + n) / 2]; });
+  const data = { type: 'FeatureCollection', features: pts.map(c => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })) };
+  const src = map.getSource('sightings');
+  if (src) src.setData(data);
+  else { map.addSource('sightings', { type: 'geojson', data }); map.addLayer({ id: 'sightings', type: 'circle', source: 'sightings', paint: { 'circle-radius': 3.5, 'circle-color': '#10241b', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.4 } }); }
+  map.setLayoutProperty('sightings', 'visibility', state.sightingsOn && state.scoreOn ? 'visible' : 'none');
+}
 /* Results are kept in the browser (IndexedDB) so a reload or a shared link opens instantly. */
 const areaDb = () => new Promise((res, rej) => { const r = indexedDB.open('wildscope', 1); r.onupgradeneeded = () => r.result.createObjectStore('areas'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 async function cacheGet(key) { try { const db = await areaDb(); return await new Promise(r => { const q = db.transaction('areas').objectStore('areas').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
@@ -531,17 +563,14 @@ async function analyseArea(opts = {}) {
   const fromView = !opts.center;
   if (fromView && state.map.getZoom() < 9) { warn('Zoom in to the area you want (a town or valley, zoom level 10 or closer), then press "Analyse this area". Or pick one from "Try a place".'); return; }
   analysing = true; const btn = $('analyse-btn'); btn.disabled = true; $('map-alert').hidden = true;
-  const c = opts.center || state.map.getCenter(); let sizeKm = opts.sizeKm;
-  if (!sizeKm) {
-    const b = state.map.getBounds(); const kx = (b.getEast() - b.getWest()) * 111.32 * Math.cos(c.lat * Math.PI / 180), ky = (b.getNorth() - b.getSouth()) * 110.54;
-    sizeKm = Math.round(Math.min(kx, ky) * 0.8);
-  }
-  sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, sizeKm));
-  const g = gridFor(c, sizeKm, AREA.cellM, AREA.pxM);
+  const c = opts.center || state.map.getCenter();
+  const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(opts.sizeKm || viewKm())));
+  const det = detailFor(sizeKm);
+  const g = gridFor(c, sizeKm, det.cellM, det.pxM);
   const key = `v3:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
-  const step = (t) => { loading(true, t); setText('map-status', t); };
+  const step = (t) => { $('area-progress').hidden = false; setText('area-progress-text', t); setText('map-status', t); };
   try {
-    step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`);
+    step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`); showAreaBox(g.bbox);
     if (!fromView) state.map.fitBounds([[g.bbox[0], g.bbox[1]], [g.bbox[2], g.bbox[3]]], { padding: panelPadding(), maxZoom: 14, duration: 1500 });
     let r = state.testInputs ? null : await cacheGet(key);
     if (r && Date.now() - r.t > AREA.cacheDays * 864e5) r = null;
@@ -559,7 +588,8 @@ async function analyseArea(opts = {}) {
         $('pilot-btn').hidden = false; $('fly-btn').hidden = true; if (!state.lite) $('globe-btn').hidden = false;
         state.spinner?.stop(); syncUrl();
       }
-      const base = `Analysed ${sizeKm} × ${sizeKm} km at 50 m · Sentinel-2 ${formatDate(res.scene.date)}`;
+      const base = `Analysed ${sizeKm} × ${sizeKm} km at ${det.cellM} m · Sentinel-2 ${formatDate(res.scene.date)}`;
+      setText('dock-hint', `Scored ${sizeKm} × ${sizeKm} km at ${det.cellM} m detail · click any square to see why`);
       if (res.osmError === 'pending') setText('map-status', `${base} · roads and water still loading…`);
       else {
         setText('map-status', `${base}${res.cached ? ' · from this browser\'s cache' : ''}`);
@@ -570,11 +600,11 @@ async function analyseArea(opts = {}) {
     else {
       const sightP = state.testInputs ? Promise.resolve(state.testSightings || null) : fetchSightings(g.bbox).catch(() => null);
       const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, step);   // testInputs: offline tests only
-      step('Calculating 15 indicators for every 50 m square…');
+      step(`Calculating 15 indicators for every ${det.cellM} m square…`);
       await new Promise(res => setTimeout(res, 30));
       const build = (osm, sightings) => {
-        const out = computeGrid(osm ? { ...inputs, roads: osm.roads, water: osm.water } : inputs, { S: g.S, cellM: AREA.cellM, pxM: AREA.pxM, nbRadiusM: 300 });
-        return { t: Date.now(), packed: packLayers(out.layers, out.cols * out.rows), out: { cols: out.cols, rows: out.rows, bbox: out.bbox, norm: out.norm },
+        const out = computeGrid(osm ? { ...inputs, roads: osm.roads, water: osm.water } : inputs, { S: g.S, cellM: det.cellM, pxM: det.pxM, nbRadiusM: 300 });
+        return { t: Date.now(), cellM: det.cellM, packed: packLayers(out.layers, out.cols * out.rows), out: { cols: out.cols, rows: out.rows, bbox: out.bbox, norm: out.norm },
           scene: inputs.scene, osmError: osm ? osm.osmError : (inputs.osm ? 'pending' : inputs.osmError || null), hasRoads: !!(osm ? osm.roads : inputs.roads), sightings };
       };
       const sightings = await sightP;
@@ -587,8 +617,8 @@ async function analyseArea(opts = {}) {
       });
     }
   } catch (e) {
-    warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`);
-  } finally { loading(false); analysing = false; btn.disabled = false; }
+    warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`); if (!state.area) showAreaBox(null);
+  } finally { loading(false); $('area-progress').hidden = true; analysing = false; btn.disabled = false; }
 }
 function buildAreaMeta(pm, r, c, sizeKm) {
   const { out, scene, sightings } = r;
@@ -601,7 +631,7 @@ function buildAreaMeta(pm, r, c, sizeKm) {
   const validation = {};
   const check = (id, rows, what, detail) => {
     const cells = toCells(rows); const p = presets[id];
-    validation[id] = { cells, background_cells: toCells(sightings.others), years: years(rows), what, detail, independent: true };
+    validation[id] = { cells, points: rows.map(x => [x.lon, x.lat]), background_cells: toCells(sightings.others), years: years(rows), what, detail, independent: true };
     p.status = cells.length >= 30 ? 'Pilot weights · tested here' : 'Pilot weights · untested here';
     if (cells.length < 30) p.noValidation = `Only ${cells.length} ${what} record${cells.length === 1 ? '' : 's'} with exact locations in GBIF for this area: too few to test here.`;
   };
@@ -617,7 +647,7 @@ function buildAreaMeta(pm, r, c, sizeKm) {
   presets.biodiversity.noValidation = 'Not yet tested. A fair test needs wildlife surveys with known effort (for example bird-atlas squares or camera-trap grids), not casual sightings. That is the next step.';
   const label = `${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}`;
   return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.3 · analysed in your browser', region: label, region_short: 'Your analysed area',
-    bbox: out.bbox, cols: out.cols, rows: out.rows, cell_m: AREA.cellM, layers: LAYER_ORDER, presets, validation, evidence: {},
+    bbox: out.bbox, cols: out.cols, rows: out.rows, cell_m: r.cellM || 50, layers: LAYER_ORDER, presets, validation, evidence: {},
     dates: { ...pm.dates, sentinel2: scene.date, sentinel2_scene: scene.id, osm: new Date(r.t).toISOString().slice(0, 10) }, normalisation: out.norm };
 }
 function backToPilot() {
@@ -625,7 +655,7 @@ function backToPilot() {
   state.grid = state.pilotGrid; state.area = null; state.tuned = {}; state.weights = {};
   state.selectedCell = -1; highlightCell(-1); clearFeature(); state.popup?.remove();
   renderMethod(); renderPresets(); renderIndicators(); recompute();
-  setText('metric-region', state.grid.meta.region_short); $('pilot-btn').hidden = true; $('place-select').value = ''; syncUrl(); flyToPilot(2000);
+  setText('metric-region', state.grid.meta.region_short); $('pilot-btn').hidden = true; $('place-select').value = ''; showAreaBox(null); syncUrl(); flyToPilot(2000);
 }
 /** Keep the address bar shareable: ?area=lat,lng,km&mode=… reopens the same analysis for anyone. */
 function shareUrl() {
@@ -638,7 +668,7 @@ function shareUrl() {
 function syncUrl() { try { history.replaceState(null, '', shareUrl()); } catch { /* file:// */ } $('copy-view').textContent = state.area ? '⊕ Copy link' : '⊕ Copy view'; }
 function parseArea(text) {
   const parts = String(text || '').split(','); const [lat, lng, km] = parts.map(Number);
-  return parts.length >= 2 && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { center: { lat, lng }, sizeKm: Number.isFinite(km) ? km : 10, mode: MODES[parts[3]] ? parts[3] : null } : null;
+  return parts.length >= 2 && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { center: { lat, lng }, sizeKm: Number.isFinite(km) ? Math.max(AREA.minKm, Math.min(AREA.maxKm, km)) : 10, mode: MODES[parts[3]] ? parts[3] : null } : null;
 }
 
 /* ---------- method dialog (built from grid.json, so it always matches the data) ---------- */
@@ -742,8 +772,9 @@ function setTab(tab) {
 function attachControls() {
   document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
   $('preset-reset').addEventListener('click', () => { if (!state.grid) return; delete state.weights[state.preset]; delete state.tuned[state.preset]; renderIndicators(); recompute(); });
-  $('score-visible').addEventListener('change', (e) => { state.scoreOn = e.target.checked; if (state.map?.getLayer('score-grid')) state.map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none'); if (!state.scoreOn) highlightCell(-1); });
-  $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
+  $('score-visible').addEventListener('change', (e) => { state.scoreOn = e.target.checked; if (state.map?.getLayer('score-grid')) state.map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none'); if (!state.scoreOn) highlightCell(-1); if (state.map?.getLayer('sightings')) state.map.setLayoutProperty('sightings', 'visibility', state.sightingsOn && state.scoreOn ? 'visible' : 'none'); });
+  $('score-sightings').addEventListener('change', (e) => { state.sightingsOn = e.target.checked; if (state.map?.getLayer('sightings')) state.map.setLayoutProperty('sightings', 'visibility', state.sightingsOn && state.scoreOn ? 'visible' : 'none'); });
+  $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; setText('opacity-label', `${e.target.value}%`); if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
   $('analyse-btn').addEventListener('click', () => analyseArea());
   $('place-select').addEventListener('change', (e) => { const v = e.target.value; if (v === 'pilot') { e.target.value = ''; if (state.pilotGrid && state.grid !== state.pilotGrid) backToPilot(); else flyToPilot(); return; } const a = parseArea(v); if (a) { if (a.mode && a.mode !== state.mode) setMode(a.mode); analyseArea(a); } });
   $('pilot-btn').addEventListener('click', backToPilot);
@@ -826,6 +857,7 @@ async function start() {
   loading(false);
   restoreRevier();
   if (!state.revier) scheduleConditions(true);
+  state.map.on('moveend', updateDockHint);
   const shared = parseArea(params.get('area'));
   if (shared && state.grid) { state.spinner?.stop(); if (state.projection === 'globe' && !state.lite) setProjection('mercator'); state.map.jumpTo({ center: [shared.center.lng, shared.center.lat], zoom: 10.5 }); analyseArea(shared); }
   else if (params.has('autofly')) setTimeout(() => flyToPilot(), 2500);
