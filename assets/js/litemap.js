@@ -78,7 +78,7 @@ export class LiteMap {
     if (def.type === 'image') {
       const [[w, n], , [e, s]] = def.coordinates;
       const ov = L.imageOverlay(def.url, [[s, w], [n, e]], { pane: 'scores', className: 'lite-pixelated', interactive: false });
-      this.sources[id] = { def, ov, updateImage({ url }) { ov.setUrl(url); } };
+      this.sources[id] = { def, ov, updateImage({ url, coordinates }) { ov.setUrl(url); if (coordinates) { const [[w2, n2], , [e2, s2]] = coordinates; ov.setBounds([[s2, w2], [n2, e2]]); } } };
     } else if (def.type === 'geojson') {
       this.sources[id] = { def, data: def.data, layers: [], setData(data) { this.data = data; for (const g of this.layers) { g.clearLayers(); g.addData(data); } } };
     } else if (def.type === 'raster') {

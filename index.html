@@ -10,9 +10,9 @@
   <title>WildScope · Habitat, Biodiversity &amp; Hunting · SAIIL</title>
   <!-- MapLibre GL JS 5.24.0 (pinned). app.js retries from jsDelivr if unpkg is unreachable. -->
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261117c" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261117d" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261117c"></script>
+  <script type="module" src="./assets/app.js?v=20261117d"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -52,6 +52,7 @@
           </form>
           <div class="demo-flag" id="data-status"><span>◆</span> Loading…</div>
           <div class="wind-chip hunting-only" id="wind-chip" hidden></div>
+          <div class="area-actions"><button type="button" class="map-btn analyse-btn" id="analyse-btn" title="Run the WildScope pipeline for the area in view (up to 12 × 12 km, 50 m squares), anywhere Sentinel-2 and ESA WorldCover exist">◎ Analyse this area · 50 m</button><button type="button" class="map-btn" id="pilot-btn" hidden>↩ Back to pilot region</button></div>
         </div>
         <div class="map-switches">
           <div class="seg-switch" role="group" aria-label="Projection"><button type="button" class="base active" data-projection="globe" aria-pressed="true">3D Globe</button><button type="button" class="base" data-projection="mercator" aria-pressed="false">2D</button></div>
@@ -77,7 +78,7 @@
         <button type="button" role="tab" data-mode="biodiversity" aria-selected="false">Biodiversity</button>
         <button type="button" role="tab" data-mode="hunting" aria-selected="false">Hunting</button>
       </div>
-      <p class="mode-lead" id="mode-lead">Where can a species live? A 0–100 habitat score for every 200 m square.</p>
+      <p class="mode-lead" id="mode-lead">Where can a species live? A 0–100 habitat score for every small square of land (200 m in the pilot, 50 m wherever you press Analyse).</p>
 
       <section class="control-group score-box" id="score-box" aria-labelledby="score-title">
         <div class="control-label"><label id="score-title">Habitat score</label><span class="tag tag-real" id="score-status">—</span></div>
@@ -86,7 +87,7 @@
         <div class="control-label small ind-head"><label>Indicators <small>tick to include · slide to weight</small></label><button type="button" class="link-btn" id="preset-reset" hidden>Reset to recommended</button></div>
         <div id="indicator-list" class="indicator-list" role="group" aria-label="Indicators"></div>
         <div class="control-group"><div class="control-label"><label for="score-threshold">Show squares scoring at least</label><strong id="threshold-label">0</strong></div><div class="best-row" role="group" aria-label="Quick filter"><button type="button" class="seg active" data-best="0">All</button><button type="button" class="seg" data-best="30">Best 30%</button><button type="button" class="seg" data-best="10">Best 10%</button></div><input id="score-threshold" type="range" min="0" max="100" value="0" step="5"><div class="range-label"><span>0 · everything</span><span>100 · best only</span></div></div>
-        <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score on map</label><label class="op-row" for="score-opacity">Opacity <input id="score-opacity" type="range" min="10" max="100" step="5" value="75"></label></div>
+        <div class="score-row"><label class="check-row"><input type="checkbox" id="score-visible" checked> Show score</label><label class="check-row"><input type="checkbox" id="score-smooth"> Smooth</label><label class="op-row" for="score-opacity">Opacity <input id="score-opacity" type="range" min="10" max="100" step="5" value="75"></label></div>
         <div class="score-actions"><button type="button" class="action secondary" id="method-btn">ⓘ How the score works</button><button type="button" class="action secondary" id="export-btn">↓ GeoTIFF for QGIS</button></div>
         <p class="control-note" id="score-note">Loading scores…</p>
       </section>
@@ -156,6 +157,7 @@
     <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real roe deer sightings (GBIF), compared fairly with where people report other mammals. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
     <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
     <li><b>Search a place</b> (top left of the map) or press <b>✈ Fly to pilot region</b>. <b>Labels</b> adds place names and roads.</li>
+    <li><b>Anywhere else:</b> search or zoom to any place in the world (a town or valley), then press <b>◎ Analyse this area</b>. WildScope downloads the free satellite and map data for up to 12 × 12 km and scores it in about a minute at 50 m detail. Inside the pilot region this also gives a sharper map than the 200 m pilot grid.</li>
     <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>
   <h3>The three modes</h3>

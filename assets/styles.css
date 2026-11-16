@@ -408,3 +408,9 @@ details.data-layers[open] > summary::after { content: " ▾"; }
   .app.lite .leaflet-control-attribution { max-width: calc(100vw - 20px); }
 }
 .app.lite .leaflet-bottom.leaflet-left .leaflet-control-scale { margin-bottom: 30px; }
+.area-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.map-btn.analyse-btn { background: #167458; color: #fff; border-color: #167458; font-weight: 800; }
+.map-btn.analyse-btn:disabled { opacity: .6; cursor: progress; }
+body.smooth-scores .lite-pixelated { image-rendering: auto; }
+.map-btn[hidden] { display: none; }
+button.map-btn { border: 0; cursor: pointer; font-family: inherit; }

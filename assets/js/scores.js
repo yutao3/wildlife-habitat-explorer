@@ -5,7 +5,7 @@
        score = Σ (weight × indicator) / Σ weight            (ticked indicators only)
    and draws the result as an image overlay (blue = low, red = high). */
 
-import { el } from './ui.js?v=20261117c';
+import { el } from './ui.js?v=20261117d';
 
 export const SCORE_RAMP = [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']];
 const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));

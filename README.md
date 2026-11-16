@@ -6,6 +6,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.1 scores (real data, Nov 2026).** Fifteen indicators per 200 m square from Copernicus Sentinel-2 (24 Jul 2026), ESA WorldCover 2021 and OpenStreetMap, combined live in the browser with weights the user can change. The roe deer score is fitted to 186 GBIF sightings with observer-bias correction and tested with spatial cross-validation (AUC 0.74 on unseen 9 km blocks). If the browser has no WebGL, the site opens a simple 2D map (Leaflet) with the same scores. How it is made: **[scripts/README_scores.md](scripts/README_scores.md)**. Outputs: `data/scores/` (website) and `data/scores/qgis/` (GeoTIFFs).
 
+**v1.2: analyse any area (Nov 2026).** Zoom to any place in the world and press **◎ Analyse this area**: the browser (`assets/js/analyse.js`) picks the clearest summer Sentinel-2 scene (Microsoft Planetary Computer), reads ESA WorldCover, OpenStreetMap roads and water and GBIF sightings, and computes the same fifteen indicators for every **50 m** square of a 4–12 km box (about 30–60 s, no server, no keys). Pilot weights are reused and labelled "untested here"; the evidence check runs automatically where GBIF has enough local roe deer records. **Smooth** blends neighbouring squares for a less blocky map.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |
