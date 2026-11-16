@@ -2,17 +2,17 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261120a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261120a';
-import { LayerManager } from './js/layers.js?v=20261120a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261120a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261120a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261120a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261120a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261120a';
-import { createOrbit } from './js/orbit.js?v=20261120a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261120a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261120a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261121a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261121a';
+import { LayerManager } from './js/layers.js?v=20261121a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261121a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261121a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261121a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261121a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261121a';
+import { createOrbit } from './js/orbit.js?v=20261121a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261121a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261121a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -247,6 +247,7 @@ function setMode(mode) {
   $('app').dataset.mode = mode;
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   setText('mode-lead', m.lead); setText('score-title', m.title); setText('right-title', m.right);
+  useRamp(mode === 'biodiversity' ? 'nature' : 'habitat'); $('score-legend-bar').style.background = rampGradient();
   if (!m.presets.includes(state.preset)) state.preset = mode === 'biodiversity' ? 'biodiversity' : (state.lastSpecies || 'roe_deer');
   if (mode === 'hunting') scheduleConditions(true);
   try { const u = new URL(location.href); u.searchParams.set('mode', mode); history.replaceState(null, '', u); } catch { /* ignore */ }
@@ -469,12 +470,12 @@ function renderBiodiversityEvidence(box, v, p) {
 /** Biodiversity net gain helper: an indicative habitat-unit baseline for the area on screen. */
 function renderBng() {
   let box = $('bng-box');
-  if (!box) { box = el('div', { class: 'control-group bng-box', id: 'bng-box' }); $('validation-box').after(box); }
+  if (!box) { box = el('div', { class: 'bng-box', id: 'bng-box' }); $('insight-label').parentElement.before(box); }
   const u = state.mode === 'biodiversity' ? state.grid.habitatUnits() : null;
   box.hidden = !u; if (!u) return;
   const f = (x) => Math.round(x).toLocaleString();
   box.replaceChildren(
-    el('div', { class: 'control-label' }, el('label', {}, 'Habitat baseline (net-gain style)'), el('span', { class: 'tag tag-custom' }, 'indicative')),
+    el('div', { class: 'control-label' }, el('label', {}, 'Biodiversity Net Gain baseline'), el('span', { class: 'tag tag-custom' }, 'indicative')),
     el('div', { class: 'bng-grid' },
       el('div', {}, el('b', {}, f(u.units)), el('span', {}, 'habitat units now')),
       el('div', {}, el('b', {}, `+${f(u.units * 0.1)}`), el('span', {}, 'needed for a 10% gain')),
@@ -489,7 +490,7 @@ function updateScoreInsights(st) {
   setText('insight-count', Number.isNaN(st.mean) ? '—' : Math.round(st.mean));
   setText('insight-sub', `${st.cells.toLocaleString()} squares of ${cellLabel()} · ${ticked} indicator${ticked === 1 ? '' : 's'} ticked`);
   histogramBars($('distribution-bars'), st.hist, state.minScore);
-  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * g.shown / Math.max(1, st.cells))}% of the region (${(g.shown * (g.meta.cell_m / 1000) ** 2).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
+  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * g.shown / Math.max(1, st.cells))}% of the region (${(g.shown * (g.meta.cell_m / 1000) ** 2).toFixed(0)} km²) scores ${state.minScore} or more.` : `${state.mode === 'biodiversity' ? 'Brown = low, green = high' : 'Blue = low, red = high'}. Raise "Show squares scoring at least" to keep only the best areas.`);
   $('mini-track-fill').style.width = `${Math.round(st.mean || 0)}%`;
   // Evidence: real sightings from GBIF, compared with where people report other mammals (observer effort)
   const v = g.meta.validation?.[p.species || ''];
@@ -599,7 +600,7 @@ function viewKm() {
   return Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(Math.min(kx, ky) * 0.8)));
 }
 function updateDockHint() {
-  if (!state.map || analysing) return;
+  if (!state.map || running) return;
   if (state.map.getZoom() < 9) { setText('dock-hint', state.area ? 'Click any square to see why it scores as it does' : 'Go anywhere on Earth, then press Analyse for live satellite scores'); return; }
   const km = viewKm(); setText('dock-hint', `Analyse will score about ${km} × ${km} km here at ${detailFor(km).cellM} m detail`);
 }
@@ -625,13 +626,13 @@ const areaDb = () => new Promise((res, rej) => { const r = indexedDB.open('wilds
 async function cacheGet(key) { try { const db = await areaDb(); return await new Promise(r => { const q = db.transaction('areas').objectStore('areas').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
 async function cachePut(key, value) { try { const db = await areaDb(); db.transaction('areas', 'readwrite').objectStore('areas').put(value, key); } catch { /* private mode: no cache */ } }
 
-let analysing = false;
+let runId = 0, running = 0;   // a newer analysis supersedes an older one that is still downloading
 /** opts.center / opts.sizeKm: analyse a given place (example places, shared links); otherwise the area in view. */
 async function analyseArea(opts = {}) {
-  if (analysing || !state.map || !state.grid) return;
+  if (!state.map || !state.grid) return;
   const fromView = !opts.center;
   if (fromView && state.map.getZoom() < 9) { warn('Zoom in to the area you want (a town or valley, zoom level 10 or closer), then press "Analyse this area". Or pick one from "Try a place".'); return; }
-  analysing = true; const btn = $('analyse-btn'); btn.disabled = true; $('map-alert').hidden = true;
+  const run = ++runId; running++; const stale = () => run !== runId; $('map-alert').hidden = true;
   const c = opts.center || state.map.getCenter();
   const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(opts.sizeKm || viewKm())));
   const det = detailFor(sizeKm);
@@ -642,6 +643,7 @@ async function analyseArea(opts = {}) {
     step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`); showAreaBox(g.bbox);
     if (!fromView) state.map.fitBounds([[g.bbox[0], g.bbox[1]], [g.bbox[2], g.bbox[3]]], { padding: panelPadding(), maxZoom: 14, duration: 1500 });
     let r = state.testInputs ? null : await cacheGet(key);
+    if (stale()) return;
     if (r && Date.now() - r.t > AREA.cacheDays * 864e5) r = null;
     const pilot = state.pilotGrid || state.grid; state.pilotGrid = pilot;
     /* Put a result on the map. first = a new area (reset weights, move the camera); otherwise a quiet refresh. */
@@ -667,9 +669,11 @@ async function analyseArea(opts = {}) {
     };
     if (r) { r.cached = true; show(r, true); }
     else {
-      const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, step);   // testInputs: offline tests only
+      const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, (t) => { if (!stale()) step(t); });   // testInputs: offline tests only
+      if (stale()) return;
       step(`Calculating 15 indicators for every ${det.cellM} m square…`);
       await new Promise(res => setTimeout(res, 30));
+      if (stale()) return;
       // The satellite data is enough for a first map. Roads and rivers (OpenStreetMap), sightings and species records (GBIF)
       // come from slower public servers: each one refreshes the same area when it arrives.
       const got = { osm: null, sightings: null, richness: null }; let grid = null, gridOsm;
@@ -678,7 +682,7 @@ async function analyseArea(opts = {}) {
         return { t: Date.now(), cellM: det.cellM, packed: packLayers(grid.layers, grid.cols * grid.rows), out: { cols: grid.cols, rows: grid.rows, bbox: grid.bbox, norm: grid.norm },
           scene: inputs.scene, osmError: got.osm ? got.osm.osmError : (inputs.osm ? 'pending' : inputs.osmError || null), hasRoads: !!(got.osm ? got.osm.roads : inputs.roads), sightings: got.sightings, richness: got.richness };
       };
-      const arrive = (k) => (v) => { if (!v) return; got[k] = v; const res = build(); if (got.osm && !res.osmError && got.sightings) cachePut(key, res); if (state.area?.key === key) show(res, false); };
+      const arrive = (k) => (v) => { if (!v || stale()) return; got[k] = v; const res = build(); if (got.osm && !res.osmError && got.sightings) cachePut(key, res); if (state.area?.key === key) show(res, false); };
       if (state.testInputs) { got.sightings = state.testSightings || null; got.richness = state.testRichness || null; }
       show(build(), true);
       if (!state.testInputs) {
@@ -688,8 +692,8 @@ async function analyseArea(opts = {}) {
       }
     }
   } catch (e) {
-    warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`); if (!state.area) showAreaBox(null);
-  } finally { loading(false); $('area-progress').hidden = true; analysing = false; btn.disabled = false; }
+    if (!stale()) { warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`); showAreaBox(state.area ? state.grid.meta.bbox : null); }
+  } finally { loading(false); running--; if (!running) $('area-progress').hidden = true; }
 }
 function buildAreaMeta(pm, r, c, sizeKm) {
   const { out, scene, sightings, richness } = r;
@@ -715,7 +719,7 @@ function buildAreaMeta(pm, r, c, sizeKm) {
     check('roe_deer', sightings.deer, 'deer', top ? `mostly ${top}` : '');
     check('wild_boar', sightings.boar, 'wild boar', '');
   }
-  presets.biodiversity.status = (richness?.records?.length || 0) >= 300 ? 'Nature indicators · tested here' : 'Nature indicators · untested here';
+  presets.biodiversity.status = (richness?.records?.length || 0) >= 300 ? 'Nature only · tested here' : 'Nature only · untested here';
   if (richness?.records?.length) validation.biodiversity = { records: richness.records, total: richness.total, blockM: sizeKm > AREA.fineKm ? 2000 : 1000 };
   presets.biodiversity.noValidation = 'Waiting for species records from GBIF, or too few exist here for a check. A proper test needs wildlife surveys with known effort (for example bird-atlas squares).';
   const label = `${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}`;

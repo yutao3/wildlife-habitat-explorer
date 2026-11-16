@@ -23,6 +23,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 - **Biodiversity evidence check:** for analysed areas the site samples GBIF records of all species, estimates species variety per 1–2 km block by rarefaction (expected species in 15 records) and reports the rank correlation with the score. The pilot region has not been run through it yet.
 - **Sturdier:** only the satellite data blocks the first map; roads, sightings and species records each refresh the area when they arrive, and every GBIF request has a 20 s timeout.
 
+**v1.6 (Nov 2026).** Light side panels restored (the dark filter in v1.5 cost too much graphics power and could stall or reload the page on some machines). Biodiversity mode has its own brown-to-green colour ramp and shows the Biodiversity Net Gain baseline card at the top of the insights. Choosing a new place now supersedes an analysis that is still downloading. The globe shows the five free satellite missions behind the site on to-scale orbits: Sentinel-2 (786 km, scores), Sentinel-1 (693 km, crop and forest maps), Terra MODIS (705 km, greenness), Suomi NPP VIIRS (824 km, daily view) and the ISS with the GEDI laser (420 km, forest height).
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

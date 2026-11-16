@@ -5,11 +5,17 @@
        score = Σ (weight × indicator) / Σ weight            (ticked indicators only)
    and draws the result as an image overlay (blue = low, red = high). */
 
-import { el } from './ui.js?v=20261120a';
+import { el } from './ui.js?v=20261121a';
 
-export const SCORE_RAMP = [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']];
+const RAMPS = {
+  habitat: [[0, '#2c4fb3'], [25, '#5aa0d8'], [45, '#c9e6ef'], [55, '#fff2b0'], [75, '#f59a52'], [100, '#c8151b']],   // blue → red
+  nature: [[0, '#8c510a'], [25, '#d8b365'], [48, '#f6e8c3'], [60, '#c7eae5'], [80, '#35978f'], [100, '#01463f']],    // bare brown → lush teal-green
+};
 const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
-const RAMP_RGB = SCORE_RAMP.map(([v, c]) => [v, hex(c)]);
+export let SCORE_RAMP = RAMPS.habitat;
+let RAMP_RGB = SCORE_RAMP.map(([v, c]) => [v, hex(c)]);
+/** Habitat and hunting use blue → red; biodiversity uses brown → green, so the two maps cannot be confused. */
+export function useRamp(name) { SCORE_RAMP = RAMPS[name] || RAMPS.habitat; RAMP_RGB = SCORE_RAMP.map(([v, c]) => [v, hex(c)]); }
 export function scoreRGB(v) {
   if (v <= RAMP_RGB[0][0]) return RAMP_RGB[0][1];
   for (let i = 1; i < RAMP_RGB.length; i++) {

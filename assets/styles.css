@@ -436,7 +436,7 @@ select.map-btn.place-select option { color: #10241b; background: #fff; }
 
 /* v1.4: action dock, progress pill, opacity line */
 .map-fly { flex-direction: column; align-items: center; gap: 7px; bottom: 62px; }
-.dock { display: flex; gap: 8px; align-items: center; padding: 7px; border-radius: 99px; background: #061224e0; border: 1px solid #9cc8ff40; box-shadow: 0 10px 34px #000b; backdrop-filter: blur(8px); }
+.dock { display: flex; gap: 8px; align-items: center; padding: 7px; border-radius: 99px; background: #061224e0; border: 1px solid #9cc8ff40; box-shadow: 0 10px 34px #000b; }
 .dock-btn { height: 44px; padding: 0 18px; border-radius: 99px; border: 1px solid #ffffff2e; background: #14345fd9; color: #fff; font-family: inherit; font-size: 13.5px; font-weight: 760; white-space: nowrap; cursor: pointer; transition: background .15s, transform .15s; }
 .dock-btn:hover { background: #1d4a88; transform: translateY(-1px); }
 .dock-btn[hidden] { display: none; }
@@ -448,7 +448,7 @@ select.map-btn.place-select option { color: #10241b; background: #fff; }
 select.dock-btn { appearance: none; -webkit-appearance: none; max-width: 176px; padding-right: 34px; text-overflow: ellipsis;
   background: #14345fd9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3C/svg%3E") no-repeat right 14px center; }
 select.dock-btn option { color: #10241b; background: #fff; }
-.dock-hint { font-size: 11.5px; font-weight: 650; color: #e4eeff; background: #061224c7; padding: 4px 12px; border-radius: 99px; }
+.dock-hint { font-size: 11.5px; font-weight: 650; color: #e4eeff; background: #061224f2; padding: 4px 12px; border-radius: 99px; }
 .area-progress { display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-radius: 99px; background: #061224f2; border: 1px solid #7ff0c880; color: #eafff7; font-size: 12.5px; font-weight: 700; box-shadow: 0 6px 24px #000a; max-width: min(560px, 86vw); }
 .area-progress[hidden] { display: none; }
 .area-progress .spinner { flex: none; }
@@ -469,17 +469,16 @@ select.dock-btn option { color: #10241b; background: #fff; }
 /* v1.5: satellite orbit overlay */
 #orbit { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
 
-/* v1.5: dark glass interface. The light design is flipped with one filter, and anything whose colour carries meaning
-   (score ramp, histogram, evidence bars, colour chips) is flipped back so it shows its true colours. */
-.panel, dialog.help, .map-top, .map-bottom-left, .map-bottom-right, .maplibregl-popup, .leaflet-popup, .map-alert { filter: invert(0.93) hue-rotate(180deg); }
-.panel { background: #e6eefcf2; border-color: #c9d6ee; box-shadow: none; backdrop-filter: blur(10px); }
-dialog.help { background: #e9f0fd; }
-.panel #score-legend-bar, .panel .chip, .panel #distribution-bars, .panel .auc-track, .panel .ind-test-bar, .panel .mini-track,
-.maplibregl-popup .chip, .leaflet-popup .chip, dialog.help .chip { filter: invert(1) hue-rotate(180deg); }
-.maplibregl-ctrl-group { filter: invert(0.93) hue-rotate(180deg); }
-.bng-box { margin-top: 12px; border: 1px solid #d5e3dc; border-radius: 12px; padding: 12px; background: #f6faf8; }
+/* v1.5: biodiversity net gain card */
+.bng-box { margin: 0 0 12px; border: 1px solid #9fd3c0; border-radius: 12px; padding: 12px; background: linear-gradient(135deg, #eefaf5, #f7fbf2); }
 .bng-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 4px; }
 .bng-grid div { display: flex; flex-direction: column; gap: 2px; }
 .bng-grid b { font-size: 17px; color: #145c47; font-variant-numeric: tabular-nums; }
 .bng-grid span { font-size: 10.5px; color: #6f8379; line-height: 1.3; }
 .bng-box[hidden] { display: none; }
+
+/* v1.6: light panels again; title and status tag never overlap; the biodiversity mode has its own accent */
+.score-head, .bng-box .control-label, #validation-box .control-label { flex-wrap: wrap; gap: 4px 8px; }
+.score-head .tag { white-space: normal; max-width: 100%; }
+#app[data-mode="biodiversity"] .mode-switch [aria-selected="true"] { background: #0f6b62; }
+#app[data-mode="biodiversity"] .insight-highlight { border-color: #9fd3c0; }

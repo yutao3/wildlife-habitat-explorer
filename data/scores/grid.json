@@ -278,7 +278,7 @@
    "label": "Biodiversity potential",
    "species": null,
    "mode": "biodiversity",
-   "status": "Nature indicators · untested",
+   "status": "Nature only · untested",
    "weights": {
     "distinct": 25,
     "diversity": 25,
