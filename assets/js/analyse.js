@@ -23,7 +23,11 @@ export function gridFor(center, sizeKm, cellM, pxM) {
 }
 
 async function img(url, w, h) {
-  const r = await fetch(url); if (!r.ok) throw new Error(`image service HTTP ${r.status}`);
+  let r;
+  for (let attempt = 0; ; attempt++) {   // one retry: the free image service sometimes drops a tile
+    try { r = await fetch(url, { signal: AbortSignal.timeout(40000) }); if (r.ok) break; throw new Error(`image service HTTP ${r.status}`); }
+    catch (e) { if (attempt) throw new Error(e.name === 'TimeoutError' ? 'the satellite image service timed out' : e.message); }
+  }
   const bm = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   const c = new OffscreenCanvas(w, h); const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bm, 0, 0, w, h);
   return g.getImageData(0, 0, w, h).data;
@@ -41,40 +45,51 @@ async function pcLayer(bbox, W, H, query) {
   return out;
 }
 async function stac(body) {
-  const r = await fetch(`${PC}/stac/v1/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(`${PC}/stac/v1/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
   if (!r.ok) throw new Error(`catalogue HTTP ${r.status}`); return (await r.json()).features || [];
 }
 const covers = (ib, b) => ib[0] <= b[0] && ib[1] <= b[1] && ib[2] >= b[2] && ib[3] >= b[3];
 
-/** Clearest recent summer scene that covers the area (falls back to the best partial cover). */
+/** Growing-season windows for a latitude: northern summer, southern summer, or the last 12 months in the tropics. */
+function seasonWindows(lat) {
+  const now = new Date(); const y = now.getUTCFullYear(), m = now.getUTCMonth(); const iso = (d) => d.toISOString().slice(0, 10);
+  if (Math.abs(lat) < 23.5) { const day = 864e5; return [[iso(new Date(now - 365 * day)), iso(now)], [iso(new Date(now - 730 * day)), iso(new Date(now - 365 * day))]]; }
+  if (lat >= 0) return (m >= 8 ? [y, y - 1] : [y - 1, y - 2]).map(yr => [`${yr}-06-01`, `${yr}-09-15`]);
+  return (m >= 3 ? [y, y - 1] : [y - 1, y - 2]).map(yr => [`${yr - 1}-12-01`, `${yr}-03-15`]);
+}
+/** Clearest growing-season scene that covers the whole box (falls back to the clearest partial one). */
 async function pickScene(bbox) {
-  const y = new Date().getUTCFullYear(); const m = new Date().getUTCMonth();
-  const years = m >= 8 ? [y, y - 1] : [y - 1, y - 2];
-  for (const yr of years) {
-    const items = await stac({ collections: ['sentinel-2-l2a'], bbox, datetime: `${yr}-06-01T00:00:00Z/${yr}-09-15T23:59:59Z`, query: { 'eo:cloud_cover': { lt: 15 } }, limit: 100 });
-    const ok = items.filter(f => covers(f.bbox, bbox)).sort((a, b) => a.properties['eo:cloud_cover'] - b.properties['eo:cloud_cover']);
+  const lat = (bbox[1] + bbox[3]) / 2; const byCloud = (a, b) => a.properties['eo:cloud_cover'] - b.properties['eo:cloud_cover'];
+  let partial = null;
+  for (const cloud of [15, 40]) for (const [from, to] of seasonWindows(lat)) {
+    const items = await stac({ collections: ['sentinel-2-l2a'], bbox, datetime: `${from}T00:00:00Z/${to}T23:59:59Z`, query: { 'eo:cloud_cover': { lt: cloud } }, limit: 100 });
+    const ok = items.filter(f => covers(f.bbox, bbox)).sort(byCloud);
     if (ok.length) return ok[0];
-    if (items.length) return items.sort((a, b) => a.properties['eo:cloud_cover'] - b.properties['eo:cloud_cover'])[0];
+    if (!partial && items.length) partial = items.sort(byCloud)[0];
   }
-  throw new Error('no clear summer Sentinel-2 scene found here');
+  if (partial) return partial;
+  throw new Error('no clear Sentinel-2 scene found here');
 }
 
-async function overpass(q, timeoutMs = 45000) {
-  let last;
-  for (let attempt = 0; attempt < 2; attempt++) for (const e of OVERPASS) {
+/** Ask all Overpass mirrors at once and take the first answer: public servers are often busy, one is usually free. */
+async function overpass(q, timeoutMs = 30000) {
+  const ask = async (e) => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
       const r = await fetch(e, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal });
-      clearTimeout(t); if (r.ok) return (await r.json()).elements.filter(x => x.geometry).map(x => x.geometry.map(p => [p.lon, p.lat]));
-      last = `HTTP ${r.status}`;
-    } catch (err) { last = err.message; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return (await r.json()).elements.filter(x => x.geometry).map(x => x.geometry.map(p => [p.lon, p.lat]));
+    } finally { clearTimeout(t); }
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { return await Promise.any(OVERPASS.map(ask)); } catch { /* all mirrors failed: one more round */ }
   }
-  throw new Error(`OpenStreetMap server busy (${last})`);
+  throw new Error('OpenStreetMap servers busy');
 }
 
 export async function fetchInputs(g, onStep = () => {}) {
   const { bbox, W, H } = g; const N = W * H;
-  onStep('Finding a clear Sentinel-2 summer scene…');
+  onStep('Finding a clear Sentinel-2 scene from the growing season…');
   const [scene, wcItems] = await Promise.all([pickScene(bbox), stac({ collections: ['esa-worldcover'], bbox, limit: 10 })]);
   const wcIds = wcItems.filter(f => /2021/.test(f.id)).map(f => f.id);
   const off = parseFloat(scene.properties['s2:processing_baseline'] || '0') >= 4 ? 2000 : 0;   // since 2022: values stored + 1000
@@ -94,10 +109,11 @@ export async function fetchInputs(g, onStep = () => {}) {
     for (const L of wcLayers) if (L[j + 3] && L[j]) { wc[i] = L[j]; break; }
     ndvi[i] = nd[j + 3] ? nd[j] / 255 * 2 - 1 : NaN; ndmi[i] = nm[j + 3] ? nm[j] / 255 * 2 - 1 : NaN; scl[i] = sc[j + 3] ? sc[j] : 0;
   }
-  onStep('Downloading roads and water from OpenStreetMap…');
-  const [roads, water] = await osmP;
-  return { W, H, B: bbox, wc, ndvi, ndmi, scl, roads: Array.isArray(roads) ? roads : null, water: Array.isArray(water) ? water : [],
-    osmError: roads.error || water.error || null, scene: { id: scene.id, date: scene.properties.datetime.slice(0, 10), cloud: scene.properties['eo:cloud_cover'] } };
+  // Roads and water come from public OpenStreetMap servers that are often slow, so they do not hold up the first map:
+  // the caller paints the scores without them and refreshes when "osm" resolves.
+  const osm = osmP.then(([roads, water]) => ({ roads: Array.isArray(roads) ? roads : null, water: Array.isArray(water) ? water : [], osmError: roads.error || water.error || null }));
+  return { W, H, B: bbox, wc, ndvi, ndmi, scl, roads: null, water: [], osm,
+    scene: { id: scene.id, date: scene.properties.datetime.slice(0, 10), cloud: scene.properties['eo:cloud_cover'] } };
 }
 
 /** Indicators per square. inputs = {W, H, B, wc, ndvi, ndmi, scl, roads, water}; S = pixels per square side. */
@@ -208,13 +224,17 @@ export function computeGrid(inputs, { S, cellM, pxM, nbRadiusM = 300 }) {
   return { cols: CW, rows: CH, bbox: B, layers: L, norm: { E98, S02, S98, M02, M98 } };
 }
 
-/** GBIF records for a live evidence check: roe deer and all other mammals (location ≤ 250 m). */
+/** GBIF records for a live evidence check: deer (family Cervidae), wild boar / feral pig, and all other
+    mammals as the "where do observers go" background. Locations within 250 m only. */
+export const GBIF_KEYS = { deer: 5298, boar: 7705930, mammals: 359 };
 export async function fetchSightings(bbox, maxPages = 4) {
   const G = 'https://api.gbif.org/v1/occurrence/search';
   const base = `${G}?decimalLatitude=${bbox[1]},${bbox[3]}&decimalLongitude=${bbox[0]},${bbox[2]}&hasCoordinate=true&hasGeospatialIssue=false&coordinateUncertaintyInMeters=0,250&basisOfRecord=HUMAN_OBSERVATION&limit=300`;
-  const get = async (q) => { const out = []; for (let p = 0; p < maxPages; p++) { const j = await (await fetch(`${base}${q}&offset=${p * 300}`)).json(); out.push(...j.results.map(r => ({ lon: r.decimalLongitude, lat: r.decimalLatitude, year: r.year, sp: r.speciesKey }))); if (j.endOfRecords) break; } return out; };
-  const [roe, mammals] = await Promise.all([get('&taxonKey=5220126'), get('&classKey=359')]);
-  return { roe, others: mammals.filter(r => r.sp !== 5220126) };
+  const get = async (q) => { const out = []; for (let p = 0; p < maxPages; p++) { const j = await (await fetch(`${base}${q}&offset=${p * 300}`)).json(); out.push(...j.results.map(r => ({ lon: r.decimalLongitude, lat: r.decimalLatitude, year: r.year, sp: r.speciesKey, fam: r.familyKey, name: r.species }))); if (j.endOfRecords) break; } return out; };
+  const [deer, boar, mammals] = await Promise.all([get(`&taxonKey=${GBIF_KEYS.deer}`), get(`&taxonKey=${GBIF_KEYS.boar}`), get(`&classKey=${GBIF_KEYS.mammals}`)]);
+  const names = {}; for (const r of deer) if (r.name) names[r.name] = (names[r.name] || 0) + 1;
+  const deerNames = Object.entries(names).sort((a, b) => b[1] - a[1]).map(([n, c]) => ({ name: n, n: c }));
+  return { deer, boar, deerNames, others: mammals.filter(r => r.fam !== GBIF_KEYS.deer && r.sp !== GBIF_KEYS.boar) };
 }
 
 export function packLayers(L, n) {

@@ -408,9 +408,28 @@ details.data-layers[open] > summary::after { content: " ▾"; }
   .app.lite .leaflet-control-attribution { max-width: calc(100vw - 20px); }
 }
 .app.lite .leaflet-bottom.leaflet-left .leaflet-control-scale { margin-bottom: 30px; }
-.area-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.area-actions { display: flex; gap: 6px; flex-wrap: wrap; width: 0; min-width: 100%; }
+.area-actions .map-btn { margin-right: 0; }
 .map-btn.analyse-btn { background: #167458; color: #fff; border-color: #167458; font-weight: 800; }
 .map-btn.analyse-btn:disabled { opacity: .6; cursor: progress; }
 body.smooth-scores .lite-pixelated { image-rendering: auto; }
 .map-btn[hidden] { display: none; }
 button.map-btn { border: 0; cursor: pointer; font-family: inherit; }
+
+/* v1.3: example places, indicator tests, tuning */
+select.map-btn.place-select { border: 0; cursor: pointer; font-family: inherit; width: 118px; margin-right: 0; appearance: none; -webkit-appearance: none; padding-right: 22px;
+  background: #0d2342e6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 8px center; }
+select.map-btn.place-select option { color: #10241b; background: #fff; }
+.ind-test { margin-top: 10px; border-top: 1px dashed #d5e3dc; padding-top: 8px; }
+.ind-test summary { cursor: pointer; font-size: 12px; font-weight: 760; color: #167458; }
+.ind-test-list { display: grid; gap: 4px; margin-top: 8px; }
+.ind-test-row { display: grid; grid-template-columns: minmax(0, 1.25fr) 1fr 34px; gap: 8px; align-items: center; font-size: 11px; color: #33473d; }
+.ind-test-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ind-test-bar { position: relative; height: 8px; border-radius: 4px; background: #eef2f0; }
+.ind-test-bar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #8fa399; }
+.ind-test-bar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.ind-test-bar i.pos { background: #1f8f6b; }
+.ind-test-bar i.neg { background: #c9792b; }
+.ind-test-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.mini-btn { margin-top: 10px; width: 100%; border: 1px solid #167458; background: #fff; color: #167458; font: inherit; font-size: 12px; font-weight: 760; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.mini-btn:hover { background: #167458; color: #fff; }

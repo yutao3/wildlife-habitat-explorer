@@ -9,10 +9,13 @@
   <link rel="apple-touch-icon" href="./assets/SAIIL-favicon.png">
   <title>WildScope · Habitat, Biodiversity &amp; Hunting · SAIIL</title>
   <!-- MapLibre GL JS 5.24.0 (pinned). app.js retries from jsDelivr if unpkg is unreachable. -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin>
+  <link rel="preload" href="./data/scores/grid.bin" as="fetch" crossorigin>
   <link id="maplibre-css" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="./assets/styles.css?v=20261117d" rel="stylesheet">
+  <link href="./assets/styles.css?v=20261118a" rel="stylesheet">
   <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script type="module" src="./assets/app.js?v=20261117d"></script>
+  <script type="module" src="./assets/app.js?v=20261118a"></script>
 </head>
 <body>
 <div class="app" id="app" data-tab="map">
@@ -52,7 +55,16 @@
           </form>
           <div class="demo-flag" id="data-status"><span>◆</span> Loading…</div>
           <div class="wind-chip hunting-only" id="wind-chip" hidden></div>
-          <div class="area-actions"><button type="button" class="map-btn analyse-btn" id="analyse-btn" title="Run the WildScope pipeline for the area in view (up to 12 × 12 km, 50 m squares), anywhere Sentinel-2 and ESA WorldCover exist">◎ Analyse this area · 50 m</button><button type="button" class="map-btn" id="pilot-btn" hidden>↩ Back to pilot region</button></div>
+          <div class="area-actions"><button type="button" class="map-btn analyse-btn" id="analyse-btn" title="Run the WildScope pipeline for the area in view (up to 12 × 12 km, 50 m squares), anywhere Sentinel-2 and ESA WorldCover exist">◎ Analyse this area</button><select class="map-btn place-select" id="place-select" aria-label="Try a place" title="Fly to an example place and analyse it with live satellite data">
+              <option value="">🌍 Try a place…</option>
+              <option value="pilot">Black Forest pilot, Germany (200 m, validated)</option>
+              <option value="51.37,-2.40,10">Bath &amp; the Cotswold edge, UK</option>
+              <option value="50.87,-1.60,10">New Forest, UK</option>
+              <option value="52.72,23.85,10">Białowieża Forest, Poland</option>
+              <option value="44.50,4.40,10">Ardèche, France</option>
+              <option value="38.55,-78.45,10">Shenandoah, Virginia, USA</option>
+              <option value="-24.99,31.59,10,biodiversity">Kruger (Skukuza), South Africa · biodiversity</option>
+            </select><button type="button" class="map-btn" id="pilot-btn" hidden>↩ Back to pilot region</button></div>
         </div>
         <div class="map-switches">
           <div class="seg-switch" role="group" aria-label="Projection"><button type="button" class="base active" data-projection="globe" aria-pressed="true">3D Globe</button><button type="button" class="base" data-projection="mercator" aria-pressed="false">2D</button></div>
@@ -148,21 +160,21 @@
 <dialog id="help" class="help" aria-labelledby="help-title">
   <form method="dialog" class="help-close-row"><button class="collapse-btn" aria-label="Close guide">✕</button></form>
   <h2 id="help-title">How to use WildScope</h2>
-  <p class="help-lead">WildScope turns free satellite and map data into simple scores for every 200 m square: <b>where wildlife can live</b>, <b>where nature is richest</b>, and <b>when to go</b> if you hunt. The pilot region is Freiburg and the western Black Forest (Germany); the method works anywhere.</p>
+  <p class="help-lead">WildScope turns free satellite and map data into simple 0–100 scores for every small square of land, anywhere in the world: <b>where wildlife can live</b>, <b>where nature is richest</b>, and <b>when to go</b> if you hunt. The validated pilot region is Freiburg and the western Black Forest (Germany); any other place is analysed live with <b>◎ Analyse this area</b>.</p>
   <ol class="help-steps">
     <li><b>Pick a mode</b> at the top of the left panel: <b>Habitat</b> (one species), <b>Biodiversity</b> (variety and naturalness of the landscape) or <b>Hunting</b> (habitat plus live wind, light and your own hunting ground).</li>
-    <li><b>Read the colours.</b> Colours show each square's rank in the pilot region: blue = among the lowest, red = among the highest. Click a square for its actual score (0–100) and a plain class: poor, average, good or very good.</li>
+    <li><b>Read the colours.</b> Colours show each square's rank in the area on screen: blue = among the lowest, red = among the highest. Click a square for its actual score (0–100) and a plain class: poor, average, good or very good.</li>
     <li><b>Build your own score.</b> Each indicator has a tick box and a weight slider. Untick one, or change its weight, and the map recalculates instantly.</li>
     <li><b>Click any square</b> to see its score and why: every indicator's value, its weight and the points it adds, plus the real measurements behind it (tree cover, NDVI, distance to the nearest road, and so on).</li>
-    <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real roe deer sightings (GBIF), compared fairly with where people report other mammals. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
+    <li><b>Check the evidence</b> in Insights (right): the score distribution and how well the score matches real deer or wild boar sightings (GBIF), compared fairly with where people report other mammals. <b>Test each indicator on its own</b> shows which indicators the animals really follow; in an analysed area with 40 or more sightings you can <b>tune the weights</b> to them, and WildScope keeps the result only if it beats the pilot weights on held-out ground. <b>Best 30% / Best 10%</b> keeps only the top squares.</li>
     <li><b>Export</b> the score you built as a GeoTIFF and open it in QGIS.</li>
     <li><b>Search a place</b> (top left of the map) or press <b>✈ Fly to pilot region</b>. <b>Labels</b> adds place names and roads.</li>
-    <li><b>Anywhere else:</b> search or zoom to any place in the world (a town or valley), then press <b>◎ Analyse this area</b>. WildScope downloads the free satellite and map data for up to 12 × 12 km and scores it in about a minute at 50 m detail. Inside the pilot region this also gives a sharper map than the 200 m pilot grid.</li>
+    <li><b>Anywhere in the world:</b> pick one from <b>🌍 Try a place</b>, or search or zoom to any town or valley and press <b>◎ Analyse this area</b>. WildScope finds the clearest recent Sentinel-2 image, downloads land cover, roads, water and sightings for up to 12 × 12 km, and scores it at 50 m detail in about a minute. The result stays in your browser, and <b>⊕ Copy link</b> gives a link that opens the same analysis for anyone.</li>
     <li><b>Satellite &amp; reference layers</b> (bottom of the left panel) add the raw data: Sentinel-2 by date, cloud mask, NDVI, DLR crop and forest maps, protected areas.</li>
   </ol>
   <h3>The three modes</h3>
   <dl class="help-defs">
-    <dt>Habitat</dt><dd>Is this a good place for roe deer or wild boar? Woodland, open feeding land, food, field–forest mosaic, distance from towns and roads, water and moisture, from Sentinel-2, ESA WorldCover and OpenStreetMap. The roe deer weights are fitted to real sightings and tested on areas the fit never saw.</dd>
+    <dt>Habitat</dt><dd>Is this a good place for deer or wild boar? Woodland, open feeding land, food, field–forest mosaic, distance from towns and roads, water and moisture, from Sentinel-2, ESA WorldCover and OpenStreetMap. The roe deer weights are fitted to real sightings and tested on areas the fit never saw.</dd>
     <dt>Biodiversity</dt><dd>How varied and natural is the landscape? Habitat variety, natural cover, spectral diversity of the vegetation, distance from towns and roads, and water. A proxy for biodiversity potential, not a species count.</dd>
     <dt>Hunting</dt><dd>The habitat score plus live wind and scent direction, sunrise, sunset, moon, and your private hunting-ground boundary.</dd>
   </dl>

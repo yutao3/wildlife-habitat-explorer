@@ -2,20 +2,20 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261117d';
-import { loadManifest, allDates } from './js/manifest.js?v=20261117d';
-import { LayerManager } from './js/layers.js?v=20261117d';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261117d';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261117d';
-import { writeGeoTiff } from './js/geotiff.js?v=20261117d';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261117d';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261117d';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261117d';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261117d';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261118a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261118a';
+import { LayerManager } from './js/layers.js?v=20261118a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261118a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS } from './js/scores.js?v=20261118a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261118a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261118a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261118a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261118a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261118a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
-  mode: 'habitat', preset: 'roe_deer', grid: null, weights: {}, minScore: 0, scoreOn: true, scoreOpacity: 0.75 };
+  mode: 'habitat', preset: 'roe_deer', grid: null, weights: {}, tuned: {}, area: null, minScore: 0, scoreOn: true, scoreOpacity: 0.75 };
 
 /* ---------- messages & loading ---------- */
 const fmtLL = (lat, lng, d = 3) => `${Math.abs(lat).toFixed(d)}° ${lat < 0 ? 'S' : 'N'}, ${Math.abs(lng).toFixed(d)}° ${lng < 0 ? 'W' : 'E'}`;
@@ -39,6 +39,9 @@ async function initialiseMap() {
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' }), 'bottom-left');
   map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  // MapLibre opens the credits by default; start folded (one tap on ⓘ shows them) so they never cover the buttons.
+  const foldCredits = () => { const a = document.querySelector('.maplibregl-ctrl-attrib'); a?.classList.remove('maplibregl-compact-show'); a?.removeAttribute('open'); };
+  const foldTimer = setInterval(foldCredits, 250); setTimeout(() => clearInterval(foldTimer), 6000);   // it re-opens as each source reports its credits
   map.on('style.load', () => { state.projection = applyProjection(map, params.has('flat') ? 'mercator' : 'globe'); updateProjectionButtons(); });
   map.on('error', (e) => console.warn('Map tile/overlay error:', e?.error?.message || e));
   map.on('mousemove', (e) => {
@@ -301,8 +304,10 @@ function markCustom() {
   const cur = activeWeights(); const base = p.weights;
   const same = Object.keys(cur).length === Object.keys(base).length && Object.entries(base).every(([k, v]) => cur[k] === v);
   const tag = $('score-status');
-  tag.textContent = same ? p.status : 'Custom weights';
-  tag.className = `tag ${same && /tested/i.test(p.status) && !/not/i.test(p.status) ? 'tag-real' : 'tag-custom'}`;
+  const tw = state.tuned[state.preset]?.weights;
+  const tuned = !!tw && Object.keys(cur).length === Object.keys(tw).length && Object.entries(tw).every(([k, v]) => cur[k] === v);
+  tag.textContent = tuned ? 'Tuned to local sightings' : same ? p.status : 'Custom weights';
+  tag.className = `tag ${tuned || (same && /\btested/i.test(p.status) && !/not/i.test(p.status)) ? 'tag-real' : 'tag-custom'}`;
   $('preset-reset').hidden = same;
 }
 
@@ -349,6 +354,66 @@ function sightingsAUC(cells, background) {
   return { auc: p.reduce((a, v) => a + below(v), 0) / p.length, n: p.length, inTop30: p.filter(v => v >= top30).length / p.length };
 }
 
+const MIN_BG = 50;   // other-mammal records needed for the observer-effort correction
+/** AUC of two plain value lists: chance that a random "pos" value beats a random "neg" value (ties count half). */
+function aucValues(pos, neg) {
+  if (!pos.length || !neg.length) return NaN;
+  const s = Float32Array.from(neg).sort(); let sum = 0;
+  for (const v of pos) {
+    let lo = 0, hi = s.length; while (lo < hi) { const m = (lo + hi) >> 1; if (s[m] < v) lo = m + 1; else hi = m; }
+    let eq = lo; while (eq < s.length && s[eq] === v) eq++;
+    sum += (lo + (eq - lo) / 2) / s.length;
+  }
+  return sum / pos.length;
+}
+function backgroundCells(v) {
+  if ((v.background_cells?.length || 0) >= MIN_BG) return v.background_cells;
+  const g = state.grid; if (!g.allValid) { g.allValid = []; for (let i = 0; i < g.n; i++) if (g.layers.valid[i]) g.allValid.push(i); }
+  return g.allValid;
+}
+/** Each indicator alone against the sightings (Yu's "test them one by one"). */
+function indicatorTests(v, pos = v.cells, neg = backgroundCells(v)) {
+  const g = state.grid; const valid = g.layers.valid;
+  const vals = (layer, cells) => { const out = []; for (const i of cells) if (valid[i] && layer[i] !== 255) out.push(layer[i]); return out; };
+  return g.meta.indicators.filter(d => g.layers[d.id]).map(d => ({ id: d.id, label: d.label, group: d.group, auc: aucValues(vals(g.layers[d.id], pos), vals(g.layers[d.id], neg)) }))
+    .filter(t => !Number.isNaN(t.auc)).sort((a, b) => b.auc - a.auc);
+}
+/** Simple, transparent tuning: weight = how far an indicator's own AUC is above chance (steps of 5, capped at 30). */
+function weightsFromTests(tests) {
+  const use = tests.filter(t => t.auc >= 0.55 && t.group !== 'Biodiversity').map(t => [t.id, Math.min(t.auc - 0.5, 0.25)]);
+  const tot = use.reduce((a, [, x]) => a + x, 0); const w = {};
+  for (const [id, x] of use) { const v = Math.min(30, Math.round(100 * x / tot / 5) * 5); if (v >= 5) w[id] = v; }
+  return Object.keys(w).length ? w : null;
+}
+function scoresAt(weights, cells) {
+  const g = state.grid; const ids = Object.keys(weights); const out = [];
+  for (const i of cells) { if (!g.layers.valid[i]) continue; let a = 0, b = 0; for (const k of ids) { const x = g.layers[k][i]; if (x !== 255) { a += weights[k] * x; b += weights[k]; } } if (b) out.push(a / b); }
+  return out;
+}
+/** Tune on three quarters of the area, test on the fourth, four times: an honest figure for the tuned weights. */
+function tuneWeights(v) {
+  const g = state.grid; const { cols } = g.meta; const neg = backgroundCells(v);
+  const med = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
+  const mc = med(v.cells.map(i => i % cols)), mr = med(v.cells.map(i => Math.floor(i / cols)));
+  const fold = (i) => (i % cols < mc ? 0 : 1) + (Math.floor(i / cols) < mr ? 0 : 2);
+  const base = g.meta.presets[state.preset].weights; let tA = 0, bA = 0, nA = 0;
+  for (let f = 0; f < 4; f++) {
+    const testPos = v.cells.filter(i => fold(i) === f), testNeg = neg.filter(i => fold(i) === f);
+    if (testPos.length < 5 || testNeg.length < 20) continue;
+    const w = weightsFromTests(indicatorTests(v, v.cells.filter(i => fold(i) !== f), neg.filter(i => fold(i) !== f))); if (!w) continue;
+    const t = aucValues(scoresAt(w, testPos), scoresAt(w, testNeg)), b = aucValues(scoresAt(base, testPos), scoresAt(base, testNeg));
+    if (Number.isNaN(t) || Number.isNaN(b)) continue;
+    tA += t * testPos.length; bA += b * testPos.length; nA += testPos.length;
+  }
+  const w = weightsFromTests(indicatorTests(v));
+  if (!w || !nA) { warn('Tuning found nothing to improve: no single indicator separates these sightings from the background clearly enough (AUC 0.55 or more). The pilot weights stay.'); return; }
+  const tuned = tA / nA, pilot = bA / nA;
+  if (tuned < pilot + 0.02) { warn(`Tuning did not beat the pilot weights here: on held-out quarters of the area AUC ${tuned.toFixed(2)} tuned against ${pilot.toFixed(2)} with the pilot weights. The pilot weights stay.`); return; }
+  state.weights[state.preset] = { ...w }; state.tuned[state.preset] = { weights: { ...w }, heldout: tuned, base: pilot };
+  renderIndicators(); recompute();
+  warn(`Weights tuned to ${v.cells.length} local sightings. On held-out quarters of the area: AUC ${tuned.toFixed(2)} tuned against ${pilot.toFixed(2)} with the pilot weights. Press "Reset" to go back.`);
+}
+
 function updateScoreInsights(st) {
   const g = state.grid; const p = preset();
   const ticked = Object.keys(activeWeights()).length;
@@ -356,22 +421,39 @@ function updateScoreInsights(st) {
   setText('insight-count', Number.isNaN(st.mean) ? '—' : Math.round(st.mean));
   setText('insight-sub', `${st.cells.toLocaleString()} squares of ${cellLabel()} · ${ticked} indicator${ticked === 1 ? '' : 's'} ticked`);
   histogramBars($('distribution-bars'), st.hist, state.minScore);
-  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * g.shown / Math.max(1, st.cells))}% of the region (${(g.shown * 0.04).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
+  setText('dist-note', state.minScore > 0 ? `${Math.round(100 * g.shown / Math.max(1, st.cells))}% of the region (${(g.shown * (g.meta.cell_m / 1000) ** 2).toFixed(0)} km²) scores ${state.minScore} or more.` : 'Blue = low, red = high. Raise "Show squares scoring at least" to keep only the best areas.');
   $('mini-track-fill').style.width = `${Math.round(st.mean || 0)}%`;
   // Evidence: real sightings from GBIF, compared with where people report other mammals (observer effort)
   const v = g.meta.validation?.[p.species || ''];
   const box = $('validation-box'); box.hidden = false;
   if (!v) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, 'not yet')), el('p', { class: 'control-note' }, p.noValidation || 'No independent data to test this score yet.'));
-  else if (v.cells.length < 30) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sightings`)), el('p', { class: 'control-note' }, p.noValidation || `Only ${v.cells.length} sightings with exact locations: too few to test.`));
+  else if (v.cells.length < 30) box.replaceChildren(el('div', { class: 'control-label' }, el('label', {}, 'Evidence check'), el('span', { class: 'tag' }, `${v.cells.length} sighting${v.cells.length === 1 ? '' : 's'}`)), el('p', { class: 'control-note' }, p.noValidation || `Only ${v.cells.length} sightings with exact locations: too few to test.`));
   else {
-    const region = sightingsAUC(v.cells), fair = (v.background_cells?.length || 0) >= 100 ? sightingsAUC(v.cells, v.background_cells) : region;
-    const verdict = fair.auc >= 0.7 ? 'good' : fair.auc >= 0.6 ? 'fair' : fair.auc > 0.55 ? 'weak' : fair.auc >= 0.45 ? 'no better than chance' : 'worse than chance';
+    const hasBg = (v.background_cells?.length || 0) >= MIN_BG;
+    const region = sightingsAUC(v.cells), fair = hasBg ? sightingsAUC(v.cells, v.background_cells) : region;
+    const verdict = !hasBg ? 'uncorrected' : fair.auc >= 0.7 ? 'good' : fair.auc >= 0.6 ? 'fair' : fair.auc > 0.55 ? 'weak' : fair.auc >= 0.45 ? 'no better than chance' : 'worse than chance';
+    const what = v.what || 'roe deer'; const tuned = state.tuned[state.preset];
+    const how = hasBg ? `against ${v.background_cells.length.toLocaleString()} sightings of other mammals by the same kind of observers, so the test is not fooled by where people walk. Against all squares of the region: AUC ${region.auc.toFixed(2)}.`
+      : 'against all squares of this area. Too few other-mammal records exist here to correct for where observers go, so this number mostly shows where people walk (roads, paths, car parks). Treat it as unreliable.';
+    const honesty = tuned ? `You tuned the weights to these sightings, so this figure flatters them. On held-out quarters of the area the tuned weights reach AUC ${tuned.heldout.toFixed(2)} (pilot weights: ${tuned.base.toFixed(2)}).`
+      : v.independent ? (hasBg ? 'These sightings were not used to set the weights, so this is an independent test of the pilot weights in a new place.' : '')
+      : 'This live check uses the same sightings the weights were fitted on; the honest figure for new areas is below.';
+    const tests = indicatorTests(v);
     box.replaceChildren(
-      el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: real sightings'), el('span', { class: `tag ${fair.auc >= 0.6 ? 'tag-real' : 'tag-custom'}` }, `AUC ${fair.auc.toFixed(2)} · ${verdict}`)),
+      el('div', { class: 'control-label' }, el('label', {}, 'Evidence check: real sightings'), el('span', { class: `tag ${hasBg && fair.auc >= 0.6 ? 'tag-real' : 'tag-custom'}` }, `AUC ${fair.auc.toFixed(2)} · ${verdict}`)),
       el('div', { class: 'auc-track' }, el('i', { style: `left:${Math.max(0, Math.min(100, (fair.auc - 0.5) * 200))}%` })),
       el('div', { class: 'range-label' }, el('span', {}, '0.5 chance'), el('span', {}, '1.0 perfect')),
-      el('p', { class: 'control-note' }, `${fair.n} roe deer sightings (GBIF, ${v.years}) against ${v.background_cells.length.toLocaleString()} sightings of other mammals by the same kind of observers, so the test is not fooled by where people walk. Against all squares of the region: AUC ${region.auc.toFixed(2)}. This live check uses the same sightings the weights were fitted on; the honest figure for new areas is below. Untick or re-weight indicators and watch it change.`),
-      p.heldout ? el('p', { class: 'control-note heldout' }, el('b', {}, 'Tested on unseen areas: '), p.heldout) : null);
+      el('p', { class: 'control-note' }, `${fair.n} ${what} sightings (GBIF, ${v.years}${v.detail ? `; ${v.detail}` : ''}) ${how} ${honesty} Untick or re-weight indicators and watch it change.`),
+      !v.independent && p.heldout ? el('p', { class: 'control-note heldout' }, el('b', {}, 'Tested on unseen areas: '), p.heldout) : null,
+      el('details', { class: 'ind-test', ...(state.testOpen ? { open: '' } : {}), ontoggle: (e) => { state.testOpen = e.target.open; } },
+        el('summary', {}, 'Test each indicator on its own'),
+        el('p', { class: 'control-note' }, 'AUC of every indicator alone against the same sightings. Above 0.5 the animals favour it, below 0.5 they avoid it.'),
+        el('div', { class: 'ind-test-list' }, ...tests.map(t => el('div', { class: 'ind-test-row' },
+          el('span', { class: 'ind-test-name' }, t.label),
+          el('span', { class: 'ind-test-bar' }, el('i', { class: t.auc >= 0.5 ? 'pos' : 'neg', style: t.auc >= 0.5 ? `left:50%;width:${Math.min(50, (t.auc - 0.5) * 200)}%` : `right:50%;width:${Math.min(50, (0.5 - t.auc) * 200)}%` })),
+          el('span', { class: 'ind-test-val' }, t.auc.toFixed(2))))),
+        v.independent && fair.n >= 40 && (v.background_cells?.length || 0) >= 100 ? el('button', { type: 'button', class: 'mini-btn', onclick: () => tuneWeights(v) }, 'Tune weights to these sightings') : null,
+        v.independent && !(fair.n >= 40 && (v.background_cells?.length || 0) >= 100) ? el('p', { class: 'control-note' }, 'Tuning the weights needs at least 40 sightings and 100 other-mammal records, so that it learns where the animals are and not where people walk.') : null));
   }
   setText('score-note', `${g.meta.version} · ${g.meta.region} · Sentinel-2 ${formatDate(g.meta.dates.sentinel2)} · ESA WorldCover ${g.meta.dates.worldcover} · OSM ${formatDate(g.meta.dates.osm)}`);
   setText('meta-layer', `${p.label} (${g.meta.version})`); setText('meta-date', `Sentinel-2 ${formatDate(g.meta.dates.sentinel2)}`);
@@ -436,65 +518,127 @@ function selectCell(i, lngLat, quiet) {
 }
 
 /* ---------- analyse any area: the same pipeline, run in the browser at 50 m ---------- */
-const AREA = { cellM: 50, pxM: 10, maxKm: 12, minKm: 4 };
+const AREA = { cellM: 50, pxM: 10, maxKm: 12, minKm: 4, cacheDays: 14 };
+/* Results are kept in the browser (IndexedDB) so a reload or a shared link opens instantly. */
+const areaDb = () => new Promise((res, rej) => { const r = indexedDB.open('wildscope', 1); r.onupgradeneeded = () => r.result.createObjectStore('areas'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function cacheGet(key) { try { const db = await areaDb(); return await new Promise(r => { const q = db.transaction('areas').objectStore('areas').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
+async function cachePut(key, value) { try { const db = await areaDb(); db.transaction('areas', 'readwrite').objectStore('areas').put(value, key); } catch { /* private mode: no cache */ } }
+
 let analysing = false;
-async function analyseArea() {
+/** opts.center / opts.sizeKm: analyse a given place (example places, shared links); otherwise the area in view. */
+async function analyseArea(opts = {}) {
   if (analysing || !state.map || !state.grid) return;
-  const z = state.map.getZoom();
-  if (z < 9) { warn('Zoom in to the area you want (a town or valley, zoom level 10 or closer), then press "Analyse this area".'); return; }
+  const fromView = !opts.center;
+  if (fromView && state.map.getZoom() < 9) { warn('Zoom in to the area you want (a town or valley, zoom level 10 or closer), then press "Analyse this area". Or pick one from "Try a place".'); return; }
   analysing = true; const btn = $('analyse-btn'); btn.disabled = true; $('map-alert').hidden = true;
-  const c = state.map.getCenter(); const b = state.map.getBounds();
-  const viewKm = Math.min(b.getEast() - b.getWest(), (b.getNorth() - b.getSouth()) / Math.cos(c.lat * Math.PI / 180)) * 111.32 * Math.cos(c.lat * Math.PI / 180) * 0.8;
-  const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(viewKm)));
+  const c = opts.center || state.map.getCenter(); let sizeKm = opts.sizeKm;
+  if (!sizeKm) {
+    const b = state.map.getBounds(); const kx = (b.getEast() - b.getWest()) * 111.32 * Math.cos(c.lat * Math.PI / 180), ky = (b.getNorth() - b.getSouth()) * 110.54;
+    sizeKm = Math.round(Math.min(kx, ky) * 0.8);
+  }
+  sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, sizeKm));
   const g = gridFor(c, sizeKm, AREA.cellM, AREA.pxM);
+  const key = `v3:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
   const step = (t) => { loading(true, t); setText('map-status', t); };
   try {
     step(`Analysing ${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}…`);
-    const sightP = state.testInputs ? Promise.resolve(null) : fetchSightings(g.bbox).catch(() => null);
-    const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, step);   // testInputs: offline tests only
-    step('Calculating 15 indicators for every 50 m square…');
-    await new Promise(r => setTimeout(r, 30));
-    const out = computeGrid(inputs, { S: g.S, cellM: AREA.cellM, pxM: AREA.pxM, nbRadiusM: 300 });
-    const n = out.cols * out.rows;
-    const sightings = await sightP;
+    if (!fromView) state.map.fitBounds([[g.bbox[0], g.bbox[1]], [g.bbox[2], g.bbox[3]]], { padding: panelPadding(), maxZoom: 14, duration: 1500 });
+    let r = state.testInputs ? null : await cacheGet(key);
+    if (r && Date.now() - r.t > AREA.cacheDays * 864e5) r = null;
     const pilot = state.pilotGrid || state.grid; state.pilotGrid = pilot;
-    const meta = buildAreaMeta(pilot.meta, out, inputs, c, sizeKm, sightings);
-    state.grid = new ScoreGrid(meta, packLayers(out.layers, n));
-    state.selectedCell = -1; highlightCell(-1); clearFeature(); state.popup?.remove();
-    renderMethod(); renderPresets(); renderIndicators(); recompute();
-    setText('metric-region', meta.region_short);
-    state.map.fitBounds([[g.bbox[0], g.bbox[1]], [g.bbox[2], g.bbox[3]]], { padding: panelPadding(), maxZoom: 14, duration: 1500 });
-    $('pilot-btn').hidden = false; $('fly-btn').hidden = true; if (!state.lite) $('globe-btn').hidden = false;
-    if (inputs.osmError) warn(`OpenStreetMap was busy, so ${inputs.roads ? 'water' : 'roads'} could not be loaded for this area; the scores use the other indicators. Try again in a minute.`);
-    setText('map-status', `Analysed ${sizeKm} × ${sizeKm} km at 50 m · Sentinel-2 ${formatDate(inputs.scene.date)}`);
+    /* Put a result on the map. first = a new area (reset weights, move the camera); otherwise a quiet refresh. */
+    const show = (res, first) => {
+      const meta = buildAreaMeta(pilot.meta, res, c, sizeKm);
+      state.grid = new ScoreGrid(meta, res.packed);
+      state.selectedCell = -1; highlightCell(-1); clearFeature(); state.popup?.remove();
+      if (first) { state.area = { lat: c.lat, lng: c.lng, km: sizeKm, key }; state.tuned = {}; state.weights = {}; }
+      renderMethod(); renderPresets(); renderIndicators(); recompute();
+      setText('metric-region', meta.region_short);
+      if (first) {
+        if (fromView) state.map.fitBounds([[g.bbox[0], g.bbox[1]], [g.bbox[2], g.bbox[3]]], { padding: panelPadding(), maxZoom: 14, duration: 1500 });
+        $('pilot-btn').hidden = false; $('fly-btn').hidden = true; if (!state.lite) $('globe-btn').hidden = false;
+        state.spinner?.stop(); syncUrl();
+      }
+      const base = `Analysed ${sizeKm} × ${sizeKm} km at 50 m · Sentinel-2 ${formatDate(res.scene.date)}`;
+      if (res.osmError === 'pending') setText('map-status', `${base} · roads and water still loading…`);
+      else {
+        setText('map-status', `${base}${res.cached ? ' · from this browser\'s cache' : ''}`);
+        if (res.osmError) warn(`OpenStreetMap was busy, so ${res.hasRoads ? 'rivers' : 'roads and rivers'} could not be loaded for this area. The scores use the other indicators. Press "Analyse this area" again in a minute to add them.`);
+      }
+    };
+    if (r) { r.cached = true; show(r, true); }
+    else {
+      const sightP = state.testInputs ? Promise.resolve(state.testSightings || null) : fetchSightings(g.bbox).catch(() => null);
+      const inputs = state.testInputs ? state.testInputs(g) : await fetchInputs(g, step);   // testInputs: offline tests only
+      step('Calculating 15 indicators for every 50 m square…');
+      await new Promise(res => setTimeout(res, 30));
+      const build = (osm, sightings) => {
+        const out = computeGrid(osm ? { ...inputs, roads: osm.roads, water: osm.water } : inputs, { S: g.S, cellM: AREA.cellM, pxM: AREA.pxM, nbRadiusM: 300 });
+        return { t: Date.now(), packed: packLayers(out.layers, out.cols * out.rows), out: { cols: out.cols, rows: out.rows, bbox: out.bbox, norm: out.norm },
+          scene: inputs.scene, osmError: osm ? osm.osmError : (inputs.osm ? 'pending' : inputs.osmError || null), hasRoads: !!(osm ? osm.roads : inputs.roads), sightings };
+      };
+      const sightings = await sightP;
+      show(build(null, sightings), true);
+      // Roads and rivers arrive later (public OpenStreetMap servers are slow): refresh the same area when they do.
+      inputs.osm?.then((osm) => {
+        const res = build(osm, sightings);
+        if (!res.osmError) cachePut(key, res);
+        if (state.area?.key === key) show(res, false);
+      });
+    }
   } catch (e) {
     warn(`Could not analyse this area: ${e.message}. Free data services can be busy; try again, or a smaller area.`);
   } finally { loading(false); analysing = false; btn.disabled = false; }
 }
-function buildAreaMeta(pm, out, inputs, c, sizeKm, sightings) {
+function buildAreaMeta(pm, r, c, sizeKm) {
+  const { out, scene, sightings } = r;
   const toCells = (pts) => pts.map(p => { const col = Math.floor((p.lon - out.bbox[0]) / (out.bbox[2] - out.bbox[0]) * out.cols), row = Math.floor((out.bbox[3] - p.lat) / (out.bbox[3] - out.bbox[1]) * out.rows); return col >= 0 && col < out.cols && row >= 0 && row < out.rows ? row * out.cols + col : -1; }).filter(i => i >= 0);
-  const d = new Date(inputs.scene.date + 'T12:00:00Z'); const dLong = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-  const redate = (x) => JSON.parse(JSON.stringify(x).replaceAll('24 Jul 2026', dLong).replaceAll('(24 Jul)', `(${dLong.slice(0, -5)})`).replaceAll('One clear Sentinel-2 date', `One clear Sentinel-2 date for this area`));
+  const d = new Date(scene.date + 'T12:00:00Z'); const dLong = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const redate = (x) => JSON.parse(JSON.stringify(x).replaceAll('24 Jul 2026', dLong).replaceAll('(24 Jul)', `(${dLong.slice(0, -5)})`).replaceAll('One clear Sentinel-2 date', 'One clear Sentinel-2 date for this area'));
   const presets = redate(pm.presets);
-  presets.roe_deer.status = 'Fitted in the pilot region, untested here';
-  presets.roe_deer.heldout = `These weights were fitted and tested in the Freiburg pilot region (AUC ${pm.evidence?.roe_deer?.cv_vs_effort?.toFixed(2) ?? '0.74'} on unseen blocks). This area has its own check above when enough local sightings exist.`;
+  const pilotAuc = pm.evidence?.roe_deer?.cv_vs_effort?.toFixed(2) ?? '0.74';
+  const years = (rows) => { const y = rows.map(x => x.year).filter(Boolean).sort(); return y.length ? (y[0] === y.at(-1) ? `${y[0]}` : `${y[0]}–${y.at(-1)}`) : 'n/a'; };
   const validation = {};
+  const check = (id, rows, what, detail) => {
+    const cells = toCells(rows); const p = presets[id];
+    validation[id] = { cells, background_cells: toCells(sightings.others), years: years(rows), what, detail, independent: true };
+    p.status = cells.length >= 30 ? 'Pilot weights · tested here' : 'Pilot weights · untested here';
+    if (cells.length < 30) p.noValidation = `Only ${cells.length} ${what} record${cells.length === 1 ? '' : 's'} with exact locations in GBIF for this area: too few to test here.`;
+  };
+  presets.roe_deer.label = 'Deer';
+  presets.roe_deer.heldout = `These weights were fitted to roe deer in the Freiburg pilot region (AUC ${pilotAuc} on unseen blocks).`;
+  presets.roe_deer.status = presets.wild_boar.status = 'Pilot weights · untested here';
   if (sightings) {
-    const yrs = sightings.roe.map(r => r.year).filter(Boolean).sort();
-    validation.roe_deer = { cells: toCells(sightings.roe), background_cells: toCells(sightings.others), years: yrs.length ? `${yrs[0]}–${yrs.at(-1)}` : 'n/a' };
-    if (validation.roe_deer.cells.length < 30) presets.roe_deer.noValidation = `Only ${validation.roe_deer.cells.length} roe deer records with exact locations in GBIF for this area: too few to test here. The weights were tested in the Freiburg pilot region.`;
-    validation.wild_boar = { cells: [], background_cells: [] };
+    const top = sightings.deerNames?.slice(0, 2).map(x => x.name).join(' and ');
+    check('roe_deer', sightings.deer, 'deer', top ? `mostly ${top}` : '');
+    check('wild_boar', sightings.boar, 'wild boar', '');
   }
+  presets.biodiversity.status = 'Literature weights · untested';
+  presets.biodiversity.noValidation = 'Not yet tested. A fair test needs wildlife surveys with known effort (for example bird-atlas squares or camera-trap grids), not casual sightings. That is the next step.';
   const label = `${sizeKm} × ${sizeKm} km around ${fmtLL(c.lat, c.lng)}`;
-  return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.1 · analysed in your browser', region: label, region_short: 'Your analysed area',
+  return { ...pm, indicators: redate(pm.indicators), ...(pm.raw ? { raw: redate(pm.raw) } : {}), ...(pm.method ? { method: redate(pm.method) } : {}), version: 'WildScope v1.3 · analysed in your browser', region: label, region_short: 'Your analysed area',
     bbox: out.bbox, cols: out.cols, rows: out.rows, cell_m: AREA.cellM, layers: LAYER_ORDER, presets, validation, evidence: {},
-    dates: { ...pm.dates, sentinel2: inputs.scene.date, sentinel2_scene: inputs.scene.id, osm: new Date().toISOString().slice(0, 10) }, normalisation: out.norm };
+    dates: { ...pm.dates, sentinel2: scene.date, sentinel2_scene: scene.id, osm: new Date(r.t).toISOString().slice(0, 10) }, normalisation: out.norm };
 }
 function backToPilot() {
   if (!state.pilotGrid) return;
-  state.grid = state.pilotGrid; state.selectedCell = -1; highlightCell(-1); clearFeature(); state.popup?.remove();
+  state.grid = state.pilotGrid; state.area = null; state.tuned = {}; state.weights = {};
+  state.selectedCell = -1; highlightCell(-1); clearFeature(); state.popup?.remove();
   renderMethod(); renderPresets(); renderIndicators(); recompute();
-  setText('metric-region', state.grid.meta.region_short); $('pilot-btn').hidden = true; flyToPilot(2000);
+  setText('metric-region', state.grid.meta.region_short); $('pilot-btn').hidden = true; $('place-select').value = ''; syncUrl(); flyToPilot(2000);
+}
+/** Keep the address bar shareable: ?area=lat,lng,km&mode=… reopens the same analysis for anyone. */
+function shareUrl() {
+  const u = new URL(location.href); u.search = '';
+  if (state.area) u.searchParams.set('area', `${state.area.lat.toFixed(4)},${state.area.lng.toFixed(4)},${state.area.km}`);
+  if (state.mode !== 'habitat') u.searchParams.set('mode', state.mode);
+  for (const k of ['lite', 'flat']) if (params.has(k)) u.searchParams.set(k, params.get(k) || '1');
+  return u.toString().replace(/%2C/g, ',');
+}
+function syncUrl() { try { history.replaceState(null, '', shareUrl()); } catch { /* file:// */ } $('copy-view').textContent = state.area ? '⊕ Copy link' : '⊕ Copy view'; }
+function parseArea(text) {
+  const parts = String(text || '').split(','); const [lat, lng, km] = parts.map(Number);
+  return parts.length >= 2 && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { center: { lat, lng }, sizeKm: Number.isFinite(km) ? km : 10, mode: MODES[parts[3]] ? parts[3] : null } : null;
 }
 
 /* ---------- method dialog (built from grid.json, so it always matches the data) ---------- */
@@ -597,10 +741,11 @@ function setTab(tab) {
 /* ---------- static controls ---------- */
 function attachControls() {
   document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
-  $('preset-reset').addEventListener('click', () => { if (!state.grid) return; delete state.weights[state.preset]; renderIndicators(); recompute(); });
+  $('preset-reset').addEventListener('click', () => { if (!state.grid) return; delete state.weights[state.preset]; delete state.tuned[state.preset]; renderIndicators(); recompute(); });
   $('score-visible').addEventListener('change', (e) => { state.scoreOn = e.target.checked; if (state.map?.getLayer('score-grid')) state.map.setLayoutProperty('score-grid', 'visibility', state.scoreOn ? 'visible' : 'none'); if (!state.scoreOn) highlightCell(-1); });
   $('score-opacity').addEventListener('input', (e) => { state.scoreOpacity = e.target.value / 100; if (state.map?.getLayer('score-grid')) state.map.setPaintProperty('score-grid', 'raster-opacity', state.scoreOpacity); });
-  $('analyse-btn').addEventListener('click', analyseArea);
+  $('analyse-btn').addEventListener('click', () => analyseArea());
+  $('place-select').addEventListener('change', (e) => { const v = e.target.value; if (v === 'pilot') { e.target.value = ''; if (state.pilotGrid && state.grid !== state.pilotGrid) backToPilot(); else flyToPilot(); return; } const a = parseArea(v); if (a) { if (a.mode && a.mode !== state.mode) setMode(a.mode); analyseArea(a); } });
   $('pilot-btn').addEventListener('click', backToPilot);
   $('score-smooth').addEventListener('change', (e) => { state.smooth = e.target.checked; if (state.map?.getLayer('score-grid') && !state.lite) state.map.setPaintProperty('score-grid', 'raster-resampling', state.smooth ? 'linear' : 'nearest'); document.body.classList.toggle('smooth-scores', state.smooth); });
   $('method-btn').addEventListener('click', () => { const d = $('method'); if (d.showModal) d.showModal(); else d.setAttribute('open', ''); });
@@ -629,6 +774,7 @@ function attachControls() {
   $('copy-view').addEventListener('click', async () => {
     if (!state.map) return;
     const c = state.map.getCenter();
+    if (state.area) { const link = shareUrl(); try { await navigator.clipboard.writeText(link); setText('map-status', 'Link copied: anyone who opens it sees this analysed area.'); } catch { setText('map-status', link); } return; }
     const text = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)} (zoom ${state.map.getZoom().toFixed(1)})`;
     try { await navigator.clipboard.writeText(text); setText('map-status', `Copied map centre: ${text}`); } catch { setText('map-status', `Map centre: ${text}`); }
   });
@@ -680,7 +826,9 @@ async function start() {
   loading(false);
   restoreRevier();
   if (!state.revier) scheduleConditions(true);
-  if (params.has('autofly')) setTimeout(() => flyToPilot(), 2500);
+  const shared = parseArea(params.get('area'));
+  if (shared && state.grid) { state.spinner?.stop(); if (state.projection === 'globe' && !state.lite) setProjection('mercator'); state.map.jumpTo({ center: [shared.center.lng, shared.center.lat], zoom: 10.5 }); analyseArea(shared); }
+  else if (params.has('autofly')) setTimeout(() => flyToPilot(), 2500);
 }
 window.__explorer = state;   // handy for debugging in the browser console
 start();
