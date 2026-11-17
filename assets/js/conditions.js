@@ -4,7 +4,8 @@
    • Moon phase & illumination (computed locally)
    • Scent drift advice from the wind direction */
 
-import { el } from './ui.js?v=20261123a';
+import { el } from './ui.js?v=20261124a';
+import { icon, moonIcon } from './icons.js?v=20261124a';
 
 const CACHE = new Map();               // "lat,lon" -> {t, data}
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
@@ -38,9 +39,8 @@ export function moon(date = new Date()) {
   const phase = age / synodic;
   const illum = (1 - Math.cos(2 * Math.PI * phase)) / 2;
   const names = ['New moon', 'Waxing crescent', 'First quarter', 'Waxing gibbous', 'Full moon', 'Waning gibbous', 'Last quarter', 'Waning crescent'];
-  const icons = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
   const i = Math.round(phase * 8) % 8;
-  return { phase, illum, name: names[i], icon: icons[i], age };
+  return { phase, illum, name: names[i], age };
 }
 
 // Open-Meteo returns local wall-clock strings ("2026-10-16T07:52"); keep them as such.
@@ -49,7 +49,7 @@ const addMin = (s, m) => { const [h, mi] = s.slice(11, 16).split(':').map(Number
 
 export function arrow(deg, size = 16) {
   // Arrow points the way the wind BLOWS TO (meteorological direction is where it comes FROM).
-  return el('span', { class: 'wind-arrow', style: `transform:rotate(${(deg + 180) % 360}deg);width:${size}px;height:${size}px`, 'aria-hidden': 'true' }, '↑');
+  return el('span', { class: 'wind-arrow', style: `transform:rotate(${(deg + 180) % 360}deg);width:${size}px;height:${size}px`, 'aria-hidden': 'true' }, icon('arrowUp', { size }));
 }
 
 export function renderConditions(container, data, { label } = {}) {
@@ -72,7 +72,7 @@ export function renderConditions(container, data, { label } = {}) {
     el('dl', { class: 'cond-grid' },
       el('dt', {}, 'Sunrise / sunset'), el('dd', {}, `${hm(sunrise)} / ${hm(sunset)}`),
       el('dt', {}, 'Daylight window*'), el('dd', {}, sunrise && sunset ? `${addMin(sunrise, -90)} – ${addMin(sunset, 90)}` : '—'),
-      el('dt', {}, 'Moon'), el('dd', {}, `${m.icon} ${m.name} · ${Math.round(m.illum * 100)}%`),
+      el('dt', {}, 'Moon'), el('dd', { class: 'moon-dd' }, moonIcon(m.phase, 16), ` ${m.name} · ${Math.round(m.illum * 100)}%`),
       el('dt', {}, 'Feels like / humidity'), el('dd', {}, `${Math.round(c.apparent_temperature)}°C / ${c.relative_humidity_2m}%`),
       el('dt', {}, 'Cloud / pressure'), el('dd', {}, `${c.cloud_cover}% / ${Math.round(c.pressure_msl)} hPa`),
       el('dt', {}, 'Precipitation now'), el('dd', {}, `${c.precipitation} mm`)),

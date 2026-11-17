@@ -5,7 +5,7 @@
 :root {
   --ink: #17302a; --muted: #6f8379; --line: #e3ebe6; --green: #16785b; --surface: #fff;
   --bar: #0f2422; --panel-w: 310px; --panel-w-r: 330px; --top-h: 58px; --tabs-h: 0px; --gap: 12px;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-feature-settings: "cv11", "ss01"; -webkit-font-smoothing: antialiased;
   color: var(--ink); background: #02040a; font-synthesis: none;
 }
 * { box-sizing: border-box; }
@@ -155,8 +155,8 @@ input[type=range] { width: 100%; accent-color: #218660; cursor: pointer; margin:
 .syn-tag { background: #fff3d6; color: #8a5a12; }
 details.demo-group > summary { cursor: pointer; list-style: none; }
 details.demo-group > summary::-webkit-details-marker { display: none; }
-details.demo-group > summary::after { content: " ▾"; }
-details.demo-group:not([open]) > summary::after { content: " ▸"; }
+details.demo-group > summary::after { content: ""; }
+details.demo-group:not([open]) > summary::after { content: ""; }
 
 /* ---------- live conditions ---------- */
 .live-tag { display: inline-flex; align-items: center; gap: 5px; color: #a3261b; background: #fdecea; }
@@ -369,8 +369,8 @@ i.chip { width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; verti
 details.data-layers { margin-top: 14px; }
 details.data-layers > summary { cursor: pointer; list-style: none; padding: 8px 0; }
 details.data-layers > summary::-webkit-details-marker { display: none; }
-details.data-layers > summary::after { content: " ▸"; }
-details.data-layers[open] > summary::after { content: " ▾"; }
+details.data-layers > summary::after { content: ""; }
+details.data-layers[open] > summary::after { content: ""; }
 .validation-box { margin-top: 12px; border: 1px solid #e3ebe6; border-radius: 10px; padding: 10px; background: #fbfdfb; }
 .auc-track { position: relative; height: 10px; border-radius: 5px; margin-top: 8px; background: linear-gradient(90deg, #d7dfda 0%, #f6d68a 20%, #8fcf9f 40%, #167458 100%); }
 .auc-track i { position: absolute; top: -4px; width: 4px; height: 18px; margin-left: -2px; border-radius: 2px; background: #10241b; box-shadow: 0 0 0 2px #fff; }
@@ -493,3 +493,42 @@ body.drawing #map, body.drawing #map canvas, body.drawing .leaflet-container { c
 #area-progress-secs { color: #9fd9c4; font-variant-numeric: tabular-nums; min-width: 26px; }
 #area-cancel { border: 0; background: #ffffff1f; color: #fff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; font-size: 11px; line-height: 1; flex: none; }
 #area-cancel:hover { background: #ffffff40; }
+
+/* v1.9: SVG icons, display font, no emoji */
+.i { width: 1.05em; height: 1.05em; flex: none; vertical-align: -0.17em; display: inline-block; }
+.dock-btn, .help-btn, .header-link, .action, .map-btn, #copy-view, .chip, .panel-tab, .collapse-btn, .mobile-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.dock-btn .i { width: 17px; height: 17px; }
+.dock-btn.primary .i { width: 19px; height: 19px; }
+.collapse-btn .i { width: 15px; height: 15px; }
+#area-cancel { display: grid; place-items: center; } #area-cancel .i { width: 12px; height: 12px; }
+.mobile-tabs button { flex-direction: column; gap: 3px; } .mobile-tabs .i { width: 20px; height: 20px; }
+.info-note > .i { width: 18px; height: 18px; color: #3c8a6c; margin-top: 1px; }
+.header-link .i { width: 13px; height: 13px; }
+.wind-arrow .i { width: 100%; height: 100%; }
+.moon-dd { display: flex; align-items: center; gap: 6px; } .i.moon { width: 16px; height: 16px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #1e9a5a; box-shadow: 0 0 0 3px #1e9a5a33; animation: live-pulse 2.4s ease-in-out infinite; }
+@keyframes live-pulse { 50% { box-shadow: 0 0 0 6px #1e9a5a00; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+/* chevrons for the collapsible sections, drawn as SVG instead of ▸ ▾ */
+details.demo-group > summary::after, details.data-layers > summary::after { display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: 0;
+  background: currentColor; transition: transform .2s; transform: rotate(-90deg);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
+details.demo-group[open] > summary::after, details.data-layers[open] > summary::after { transform: none; }
+/* the place menu gets a globe icon on its left */
+select.dock-btn.place-select { padding-left: 38px; background:
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M3 12h18M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3z'/%3E%3C/svg%3E") no-repeat 15px center,
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3C/svg%3E") no-repeat right 14px center, #14345fd9; }
+/* display type: Space Grotesk for titles and big numbers, Inter for everything else */
+.brand-title, .panel-heading h2, .help h2, .help h3, #insight-count, .insight-highlight strong, .bng-grid b, .dock-btn.primary, .mode-switch button, #score-title, .feature-name, #feature-name {
+  font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: -.02em; }
+#insight-count, .insight-highlight strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+.brand-title { font-size: 17px; font-weight: 700; }
+/* the dock fits between the two panels on a 1440 px screen */
+.dock { gap: 6px; padding: 6px; }
+.dock-btn { padding: 0 14px; font-size: 13px; height: 42px; }
+.dock-btn.primary { padding: 0 18px; font-size: 14px; }
+.dock-btn.subtle { padding: 0 12px; }
+select.dock-btn.place-select { max-width: none; width: 164px; padding-right: 30px; }
+@media (max-width: 760px) { select.dock-btn.place-select { width: 154px; } }
+@media (max-width: 1360px) { .dock-btn.subtle .i + * , .dock-btn.subtle { font-size: 0; gap: 0; padding: 0 12px; } .dock-btn.subtle .i { width: 18px; height: 18px; } }

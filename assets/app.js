@@ -2,17 +2,18 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261123a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261123a';
-import { LayerManager } from './js/layers.js?v=20261123a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261123a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261123a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261123a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261123a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261123a';
-import { createOrbit } from './js/orbit.js?v=20261123a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261123a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261123a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261124a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261124a';
+import { LayerManager } from './js/layers.js?v=20261124a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261124a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261124a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261124a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261124a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261124a';
+import { createOrbit } from './js/orbit.js?v=20261124a';
+import { icon } from './js/icons.js?v=20261124a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261124a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261124a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -793,7 +794,7 @@ function shareUrl() {
   for (const k of ['lite', 'flat']) if (params.has(k)) u.searchParams.set(k, params.get(k) || '1');
   return u.toString().replace(/%2C/g, ',');
 }
-function syncUrl() { try { history.replaceState(null, '', shareUrl()); } catch { /* file:// */ } $('copy-view').textContent = state.area ? '⊕ Copy link' : '⊕ Copy view'; }
+function syncUrl() { try { history.replaceState(null, '', shareUrl()); } catch { /* file:// */ } setText('copy-view-text', state.area ? 'Copy link' : 'Copy view'); $('copy-view').replaceChildren(icon(state.area ? 'link' : 'crosshair'), ' ', el('span', { id: 'copy-view-text' }, state.area ? 'Copy link' : 'Copy view')); }
 function parseArea(text) {
   const parts = String(text || '').split(','); const [lat, lng, km] = parts.map(Number);
   return parts.length >= 2 && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { center: { lat, lng }, sizeKm: Number.isFinite(km) ? Math.max(AREA.minKm, Math.min(AREA.maxKm, km)) : 10, mode: MODES[parts[3]] ? parts[3] : null } : null;
@@ -987,7 +988,7 @@ async function start() {
     renderMethod();
     const m = params.get('mode'); setMode(MODES[m] ? m : 'habitat');
   } else setText('score-note', 'Score grid could not be loaded.');
-  const badge = $('data-status'); badge.classList.add('real'); badge.replaceChildren(el('span', {}, '◆'), ` REAL OPEN DATA${state.lite ? ' · SIMPLE 2D MAP' : ''}`);
+  const badge = $('data-status'); badge.classList.add('real'); badge.replaceChildren(el('span', { class: 'live-dot', 'aria-hidden': 'true' }), ` REAL OPEN DATA${state.lite ? ' · SIMPLE 2D MAP' : ''}`);
   loading(false);
   restoreRevier();
   if (!state.revier) scheduleConditions(true);

@@ -29,6 +29,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.8 (Nov 2026).** **↺ Reset** in the bottom bar stops anything that is loading and returns to the start (pilot scores, default weights and filters, whole-Earth view); it also forgets the stored copy of the area on screen so it is fetched fresh next time. The progress pill shows elapsed seconds and has a ✕ to cancel. Satellite image requests time out after 25 s instead of 40 s.
 
+**v1.9 (Nov 2026).** No emoji or symbol characters anywhere in the interface: every icon is a drawn SVG line icon from one set (`assets/js/icons.js`, also inlined as a sprite at the top of `index.html`), the moon phase in Hunting mode is drawn to the real phase, and wind arrows are SVG. Type: Inter for text and Space Grotesk for titles and big numbers (Google Fonts). The bottom bar was tightened to fit between the panels.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

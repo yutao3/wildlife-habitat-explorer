@@ -123,7 +123,7 @@ export function refreshLayerPanel(container, mgr, selectedDate) {
       ? `${TYPE_LABEL[l.type] || l.type} · LIVE · ${formatDate(v.date)}`
       : `${TYPE_LABEL[l.type] || l.type} · ${formatDate(v.date)}${nearest}${l.versions.length > 1 ? ` · ${l.versions.length} dates` : ''}`;
     const status = row.querySelector('.layer-status');
-    status.textContent = st.error ? `⚠ ${st.error}` : st.loading ? 'Loading…' : '';
+    status.textContent = st.error ? `Error: ${st.error}` : st.loading ? 'Loading…' : '';
     status.classList.toggle('error', !!st.error);
   }
 }
