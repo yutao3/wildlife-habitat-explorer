@@ -2,18 +2,18 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261124a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261124a';
-import { LayerManager } from './js/layers.js?v=20261124a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261124a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261124a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261124a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261124a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261124a';
-import { createOrbit } from './js/orbit.js?v=20261124a';
-import { icon } from './js/icons.js?v=20261124a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261124a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261124a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261125a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261125a';
+import { LayerManager } from './js/layers.js?v=20261125a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261125a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261125a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261125a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261125a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261125a';
+import { createOrbit } from './js/orbit.js?v=20261125a';
+import { icon } from './js/icons.js?v=20261125a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261125a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261125a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -686,7 +686,7 @@ async function analyseArea(opts = {}) {
   const sizeKm = Math.max(AREA.minKm, Math.min(AREA.maxKm, Math.round(opts.sizeKm || viewKm())));
   const det = detailFor(sizeKm);
   const g = gridFor(c, sizeKm, det.cellM, det.pxM);
-  const key = `v4:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
+  const key = `v5:${c.lat.toFixed(3)},${c.lng.toFixed(3)},${sizeKm}`;
   const t0 = Date.now(); clearInterval(stepTimer); setText('area-progress-secs', '');
   stepTimer = setInterval(() => { if (stale()) return; setText('area-progress-secs', `${Math.round((Date.now() - t0) / 1000)} s`); }, 1000);
   const step = (t) => { $('area-progress').hidden = false; setText('area-progress-text', t); setText('map-status', t); };

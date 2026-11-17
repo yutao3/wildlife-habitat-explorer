@@ -1,5 +1,5 @@
 {
- "version": "WildScope v1.5",
+ "version": "WildScope v2.0",
  "created": "2026-11-16",
  "region": "Freiburg & western Black Forest (DE)",
  "region_short": "Freiburg & Black Forest (DE)",
@@ -70,7 +70,7 @@
    "id": "open",
    "group": "Food",
    "label": "Open feeding land",
-   "how": "Share of grassland, cropland, shrub and wetland within 600 m (60% or more → 100).",
+   "how": "Share of grassland, cropland, shrub and wetland in the square itself (60% or more → 100).",
    "why": "Roe deer feed on meadows and fields; most sightings are on open land next to woodland.",
    "source": "ESA WorldCover 2021"
   },
@@ -86,7 +86,7 @@
    "id": "crops",
    "group": "Food",
    "label": "Farmland nearby",
-   "how": "Share of cropland within 600 m (50% or more → 100).",
+   "how": "Share of cropland in the square itself (50% or more → 100).",
    "why": "Wild boar raid maize and cereals; crops are also roe deer food.",
    "source": "ESA WorldCover 2021"
   },
@@ -102,7 +102,7 @@
    "id": "mosaic",
    "group": "Landscape structure",
    "label": "Field–forest mosaic",
-   "how": "Open land and woodland both present within 600 m: 4 × open share × woodland share (a 50/50 mix → 100).",
+   "how": "Open land in the square next to woodland around it: 4 × open share × woodland share within 600 m (a 50/50 mix → 100).",
    "why": "Roe deer are animals of the mosaic: food and cover close together.",
    "source": "ESA WorldCover 2021"
   },
@@ -246,16 +246,17 @@
    "status": "Fitted to sightings and tested",
    "weights": {
     "woodland": 5,
-    "open": 15,
+    "open": 10,
     "forage": 5,
-    "crops": 15,
+    "crops": 20,
+    "moisture": 5,
     "mosaic": 5,
-    "towns_far": 30,
-    "roads_far": 20
+    "towns_far": 25,
+    "roads_far": 25
    },
    "description": "Roe deer habitat score v1.1: weights fitted to GBIF sightings with observer-bias correction, tested with spatial cross-validation.",
-   "rationale": "Weights fitted to 186 roe deer sightings against 1898 sightings of other mammals made by the same kind of observers, with guardrails: woodland nearby, the field–forest mosaic and green food always count, and no indicator takes more than 30%. The data say roe deer here are found on open feeding land in a field–forest mosaic, away from towns and roads.",
-   "heldout": "Spatial cross-validation (9 km blocks held out): AUC 0.74 against where people report other mammals, 0.54 against the whole region. The first expert guess scored 0.51 and 0.41."
+   "rationale": "Weights fitted to 155 roe deer sightings since 2017 against 1724 sightings of other mammals made by the same kind of observers, with guardrails: woodland nearby, the field–forest mosaic and green food always count, and no indicator takes more than 30%. Open land, farmland and the mosaic are measured inside each square, so the map shows differences from one square to the next.",
+   "heldout": "Spatial cross-validation (9 km blocks held out): AUC 0.73 against where people report other mammals, 0.53 against the whole region. The first expert guess scored 0.51."
   },
   "wild_boar": {
    "label": "Wild boar",
@@ -309,6 +310,7 @@
     31603,
     31603,
     8066,
+    15906,
     2564,
     31600,
     31377,
@@ -448,42 +450,10 @@
     37561,
     45123,
     1076,
-    20225,
-    910,
-    45264,
-    48596,
-    48596,
-    45264,
-    45263,
-    45706,
-    45707,
-    47087,
-    45123,
-    45123,
-    29377,
-    6245,
-    6245,
-    6245,
-    12184,
-    12184,
-    6245,
-    910,
-    910,
-    18649,
-    910,
-    910,
-    6245,
-    46043,
-    17540,
-    17540,
-    15803,
-    17540,
-    30231,
-    47419,
-    37561
+    20225
    ],
-   "n_records": 186,
-   "years": "2009–2026",
+   "n_records": 155,
+   "years": "2017–2026",
    "source": "GBIF.org occurrence search, human observations, coordinate uncertainty ≤ 250 m",
    "background_cells": [
     33796,
@@ -726,6 +696,8 @@
     35777,
     32003,
     35200,
+    42122,
+    40843,
     47425,
     20926,
     40704,
@@ -837,13 +809,18 @@
     35578,
     35578,
     33979,
+    47494,
+    47417,
+    47721,
+    47718,
+    30468,
+    47417,
     42561,
     29461,
     35578,
     42020,
     20957,
     36944,
-    4024,
     41798,
     7584,
     8048,
@@ -954,7 +931,6 @@
     21760,
     15594,
     21980,
-    44429,
     43006,
     42562,
     43006,
@@ -1262,7 +1238,6 @@
     20308,
     32716,
     11370,
-    20308,
     28264,
     18649,
     41963,
@@ -1378,7 +1353,6 @@
     13792,
     26269,
     29122,
-    29122,
     32003,
     13583,
     21827,
@@ -1418,7 +1392,6 @@
     12244,
     31317,
     7927,
-    32003,
     34690,
     40431,
     8375,
@@ -1694,7 +1667,6 @@
     29786,
     30013,
     30236,
-    22291,
     41479,
     33796,
     33796,
@@ -1704,7 +1676,6 @@
     7729,
     46639,
     21759,
-    43063,
     30007,
     968,
     970,
@@ -1769,7 +1740,6 @@
     14644,
     14644,
     16599,
-    16599,
     26441,
     48272,
     46606,
@@ -1789,7 +1759,6 @@
     39930,
     15362,
     32511,
-    16823,
     16599,
     46753,
     46347,
@@ -1833,7 +1802,6 @@
     46311,
     47172,
     23311,
-    29122,
     9146,
     33796,
     4868,
@@ -1851,7 +1819,6 @@
     4644,
     33796,
     46344,
-    17787,
     22219,
     30009,
     30012,
@@ -2003,7 +1970,6 @@
     33796,
     38464,
     38464,
-    38464,
     46523,
     36893,
     48517,
@@ -2097,7 +2063,6 @@
     12601,
     33796,
     33806,
-    35152,
     32700,
     30483,
     16908,
@@ -2214,178 +2179,9 @@
     16621,
     46639,
     36021,
-    34072,
-    34072,
-    34072,
-    46639,
-    34072,
-    3064,
-    3064,
-    15081,
-    29595,
-    5091,
-    15331,
-    25547,
-    15331,
-    36903,
-    22424,
-    48818,
-    45263,
-    47192,
-    45263,
-    45264,
-    46639,
-    33979,
-    45008,
-    36021,
-    45123,
-    45123,
-    45123,
-    15885,
-    15885,
-    36022,
-    30205,
-    46639,
-    10285,
-    35077,
-    27601,
-    27601,
-    22051,
-    12406,
-    5356,
-    22051,
-    30927,
-    47087,
-    21093,
-    46189,
-    22436,
-    36217,
-    17521,
-    36021,
-    36021,
-    33575,
-    14640,
-    15302,
-    18649,
-    47087,
-    36021,
-    35575,
-    15081,
-    42648,
-    45007,
-    45007,
-    48312,
-    46639,
-    30231,
-    30231,
-    37075,
-    44644,
-    40630,
-    38857,
-    40630,
-    40630,
-    15081,
-    22051,
-    22051,
-    46639,
-    22051,
-    31149,
-    22051,
-    22051,
-    48767,
-    12406,
-    12406,
-    33796,
-    22051,
-    41431,
-    38190,
-    38190,
-    21758,
-    21758,
-    44798,
-    42120,
-    15081,
-    26512,
-    30231,
-    30231,
-    30231,
-    41598,
-    30231,
-    27586,
-    17540,
-    17540,
-    17540,
-    30021,
-    29595,
-    30021,
-    30231,
-    30021,
-    15080,
-    40412,
-    40412,
-    15081,
-    30231,
-    31817,
-    20955,
-    30705,
-    21394,
-    23538,
-    23538,
-    30231,
-    23538,
-    21758,
-    29122,
-    21758,
-    23538,
-    19562,
-    21603,
-    223,
-    223,
-    34041,
-    31817,
-    30231,
-    30231,
-    30231,
-    30231,
-    30231,
-    30231,
-    30231,
-    30231,
-    30231,
-    31776,
-    31776,
-    31776,
-    47419,
-    47419,
-    31776,
-    31776,
-    31776,
-    31776,
-    47419,
-    47419,
-    31776,
-    31776,
-    47419,
-    47419,
-    30705,
-    16250,
-    30705,
-    27117,
-    30232,
-    33303,
-    30463,
-    42120,
-    15080,
-    15080,
-    15080,
-    30231,
-    231,
-    15080,
-    30231,
-    41149,
-    31593
+    34072
    ],
-   "background": "GBIF human observations of all other mammals (class Mammalia, excluding roe deer), coordinate uncertainty <= 250 m, same region"
+   "background": "GBIF human observations of other mammals (class Mammalia, excluding deer and wild boar) since 2017, coordinate uncertainty ≤ 250 m, same region"
   },
   "wild_boar": {
    "cells": [
@@ -2394,98 +2190,86 @@
     43063,
     17787,
     38464,
-    35152,
-    223
+    35152
    ],
-   "n_records": 7,
-   "years": "2010–2024",
+   "n_records": 6,
+   "years": "2017–2026",
    "source": "GBIF.org occurrence search, human observations, coordinate uncertainty ≤ 250 m"
   }
  },
  "evidence": {
   "roe_deer": {
-   "cv_vs_effort": 0.743,
-   "cv_vs_region": 0.536,
-   "all_vs_effort": 0.788,
-   "all_vs_region": 0.6,
-   "expert_vs_effort": 0.514,
-   "expert_vs_region": 0.412,
+   "cv_vs_effort": 0.73,
+   "cv_vs_region": 0.527,
+   "all_vs_effort": 0.775,
+   "all_vs_region": 0.556,
+   "expert_vs_effort": 0.506,
+   "expert_vs_region": 0.405,
    "single": {
     "woodland": {
-     "vs_effort": 0.429,
-     "vs_region": 0.356
+     "vs_effort": 0.423,
+     "vs_region": 0.362
     },
     "cover": {
-     "vs_effort": 0.391,
-     "vs_region": 0.35
+     "vs_effort": 0.39,
+     "vs_region": 0.358
     },
     "open": {
-     "vs_effort": 0.676,
-     "vs_region": 0.64
+     "vs_effort": 0.658,
+     "vs_region": 0.632
     },
     "forage": {
-     "vs_effort": 0.552,
-     "vs_region": 0.513
+     "vs_effort": 0.534,
+     "vs_region": 0.503
     },
     "crops": {
-     "vs_effort": 0.548,
-     "vs_region": 0.558
+     "vs_effort": 0.528,
+     "vs_region": 0.53
     },
     "moisture": {
-     "vs_effort": 0.501,
-     "vs_region": 0.365
+     "vs_effort": 0.514,
+     "vs_region": 0.377
     },
     "mosaic": {
-     "vs_effort": 0.545,
-     "vs_region": 0.498
+     "vs_effort": 0.539,
+     "vs_region": 0.539
     },
     "edge": {
-     "vs_effort": 0.518,
-     "vs_region": 0.552
+     "vs_effort": 0.522,
+     "vs_region": 0.554
     },
     "edge_near": {
-     "vs_effort": 0.467,
-     "vs_region": 0.522
+     "vs_effort": 0.464,
+     "vs_region": 0.523
     },
     "towns_far": {
-     "vs_effort": 0.759,
-     "vs_region": 0.556
+     "vs_effort": 0.758,
+     "vs_region": 0.543
     },
     "roads_far": {
-     "vs_effort": 0.733,
-     "vs_region": 0.536
+     "vs_effort": 0.732,
+     "vs_region": 0.524
     },
     "water": {
-     "vs_effort": 0.397,
-     "vs_region": 0.46
-    },
-    "diversity": {
-     "vs_effort": 0.494,
-     "vs_region": 0.546
-    },
-    "natural": {
-     "vs_effort": 0.635,
-     "vs_region": 0.498
-    },
-    "spectral": {
-     "vs_effort": 0.388,
-     "vs_region": 0.552
+     "vs_effort": 0.386,
+     "vs_region": 0.45
     }
    },
    "folds": [
     {
      "fold": 0,
-     "test_sightings": 11,
+     "test_sightings": 10,
      "weights": {
-      "woodland": 10,
-      "open": 15,
-      "forage": 10,
-      "crops": 15,
-      "mosaic": 10,
+      "woodland": 5,
+      "open": 10,
+      "forage": 5,
+      "crops": 20,
+      "moisture": 5,
+      "mosaic": 5,
       "towns_far": 25,
       "roads_far": 25
      },
-     "auc_vs_effort": 0.632,
+     "auc_vs_effort": 0.716,
      "auc_vs_region": 0.581
     },
     {
@@ -2498,60 +2282,80 @@
       "crops": 20,
       "mosaic": 5,
       "towns_far": 25,
-      "roads_far": 25
+      "roads_far": 20
      },
-     "auc_vs_effort": 0.586,
-     "auc_vs_region": 0.571
+     "auc_vs_effort": 0.503,
+     "auc_vs_region": 0.506
     },
     {
      "fold": 2,
-     "test_sightings": 72,
+     "test_sightings": 60,
      "weights": {
-      "woodland": 10,
-      "open": 25,
+      "woodland": 5,
+      "open": 20,
       "forage": 10,
-      "moisture": 15,
-      "mosaic": 10,
+      "moisture": 20,
+      "mosaic": 5,
       "towns_far": 25,
-      "roads_far": 15
+      "roads_far": 10
      },
-     "auc_vs_effort": 0.826,
-     "auc_vs_region": 0.519
+     "auc_vs_effort": 0.809,
+     "auc_vs_region": 0.522
     },
     {
      "fold": 3,
-     "test_sightings": 50,
+     "test_sightings": 42,
      "weights": {
-      "woodland": 15,
-      "open": 15,
-      "forage": 5,
-      "crops": 20,
-      "moisture": 5,
+      "woodland": 5,
+      "open": 10,
+      "forage": 10,
+      "crops": 15,
+      "moisture": 15,
       "mosaic": 5,
-      "towns_far": 25,
-      "roads_far": 5
+      "towns_far": 30,
+      "roads_far": 10
      },
-     "auc_vs_effort": 0.761,
-     "auc_vs_region": 0.504
+     "auc_vs_effort": 0.788,
+     "auc_vs_region": 0.551
     },
     {
      "fold": 4,
-     "test_sightings": 23,
+     "test_sightings": 13,
      "weights": {
       "woodland": 5,
       "open": 20,
       "forage": 5,
-      "crops": 20,
+      "crops": 15,
+      "moisture": 10,
       "mosaic": 5,
       "towns_far": 25,
       "roads_far": 20
      },
-     "auc_vs_effort": 0.698,
-     "auc_vs_region": 0.591
+     "auc_vs_effort": 0.712,
+     "auc_vs_region": 0.477
     }
    ],
-   "n_sightings": 186,
-   "n_background": 1898
+   "n_sightings": 155,
+   "n_background": 1724,
+   "years": "2017–2026",
+   "sharpness": {
+    "before": {
+     "neigh": 4.52,
+     "forest_iqr": 19.9,
+     "forest_p10_90": 34.7,
+     "forest_same": 0.111
+    },
+    "after": {
+     "neigh": 5.76,
+     "forest_iqr": 22.9,
+     "forest_p10_90": 38.2,
+     "forest_same": 0.09
+    }
+   },
+   "previous": {
+    "cv_vs_effort": 0.743,
+    "note": "v1.1: 600 m land-cover shares, sightings of all years"
+   }
   }
  },
  "stats": {
@@ -2580,7 +2384,7 @@
  },
  "method": {
   "lead": "Each 200 m square gets 15 indicators, each scaled from 0 (poor) to 100 (good). A score is the weighted average of the indicators that are ticked. All inputs are free, open data; nothing is invented.",
-  "validation": "The roe deer score is fitted and tested on real sightings: 186 GBIF records (citizen science, location within 250 m). People report animals where people go, so the comparison is made against 1898 records of other mammals by the same kind of observers (\"target-group background\"). AUC is the chance that a square with a roe deer record scores higher than a square with another mammal record: 0.5 = no better than chance, 0.7 or more = useful. Tested on 9 km blocks the fit never saw, the score reaches AUC 0.74 (0.54 against the whole region). The first, purely expert guess scored 0.51: it put too much weight on dense forest, where people rarely see deer.",
+  "validation": "The roe deer score is fitted and tested on real sightings: 155 GBIF records since 2017 (citizen science, location within 250 m). People report animals where people go, so the comparison is made against 1724 records of other mammals by the same kind of observers since 2017 (\"target-group background\"). AUC (area under the ROC curve; ROC = receiver operating characteristic) is the chance that a square with a roe deer record scores higher than a square with another mammal record: 0.5 = no better than chance, 0.7 or more = useful. Tested on 9 km blocks the fit never saw, the score reaches AUC 0.73 (0.53 against the whole region). Only records from 2017 on are used, so the test matches the Sentinel-2 era rather than decades-old observations.",
   "limits": [
    "One clear Sentinel-2 date (24 Jul 2026). Weekly updates and each place's seasonal normal come next.",
    "Sightings are citizen science: they show where people see roe deer, not every place deer use. Hunting-bag, camera-trap or GPS-collar data would give a stronger test.",

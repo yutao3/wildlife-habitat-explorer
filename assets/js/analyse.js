@@ -171,7 +171,7 @@ export function computeGrid(inputs, { S, cellM, pxM, nbRadiusM = 300 }) {
   }
   // neighbourhood sums within ±nbRadiusM (a square window), via an integral image
   const r = Math.max(1, Math.round(nbRadiusM / cellM));
-  function nb(a) {
+  function nb(a, r) {
     const I = new Float64Array((CW + 1) * (CH + 1));
     for (let y = 0; y < CH; y++) { let row = 0; for (let x = 0; x < CW; x++) { row += a[y * CW + x]; I[(y + 1) * (CW + 1) + x + 1] = I[y * (CW + 1) + x + 1] + row; } }
     const out = new Float32Array(NC);
@@ -181,8 +181,12 @@ export function computeGrid(inputs, { S, cellM, pxM, nbRadiusM = 300 }) {
     }
     return out;
   }
-  const nbP = nb(nPix), nbE = nb(edgeP), nbON = nb(openN), nbOS = nb(openS);
-  const nbC = Object.fromEntries(CL.map(k => [k, nb(cnt[k])]));
+  const nbP = nb(nPix, r), nbE = nb(edgeP, r), nbON = nb(openN, r), nbOS = nb(openS, r);
+  const nbC = Object.fromEntries(CL.map(k => [k, nb(cnt[k], r)]));
+  // v2.0: open land, farmland and the mosaic look only at the square and its closest neighbours (about 150–200 m),
+  // so scores change from square to square instead of being smoothed over 600 m. Woodland nearby keeps the wide view.
+  const rs = cellM <= 50 ? 1 : 0;
+  const nsP = rs ? nb(nPix, rs) : nPix, nsC = Object.fromEntries([20, 30, 40, 90].map(k => [k, rs ? nb(cnt[k], rs) : cnt[k]]));
   const pct = (arr, p) => { const v = Array.from(arr).filter(Number.isFinite).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) * p)] : 0; };
   const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
   const edgeD = new Float32Array(NC), spec = new Float32Array(NC).fill(NaN), ndmiM = new Float32Array(NC).fill(NaN), shan = new Float32Array(NC);
@@ -204,12 +208,13 @@ export function computeGrid(inputs, { S, cellM, pxM, nbRadiusM = 300 }) {
     L.valid[c] = sh(50) + sh(80) + sh(90) > 0.6 ? 0 : 1;
     const tree = sh(10), open = sh(20) + sh(30) + sh(40) + sh(90);
     const wood = nsh(10), openNb = nsh(20) + nsh(30) + nsh(40) + nsh(90);
+    const ssh = (k) => nsP[c] ? nsC[k][c] / nsP[c] : 0, openSq = ssh(20) + ssh(30) + ssh(40) + ssh(90);
     L.woodland[c] = clamp(100 * wood); L.cover[c] = clamp(100 * tree);
-    L.open[c] = clamp(100 * openNb / 0.6);
+    L.open[c] = clamp(100 * openSq / 0.6);
     L.forage[c] = nbON[c] >= minPix ? clamp(100 * ((nbOS[c] / nbON[c]) - 0.25) / 0.5) : 15;
-    L.crops[c] = clamp(100 * nsh(40) / 0.5);
+    L.crops[c] = clamp(100 * ssh(40) / 0.5);
     L.moisture[c] = Number.isNaN(ndmiM[c]) ? 255 : clamp(100 * (ndmiM[c] - M02) / ((M98 - M02) || 1));
-    L.mosaic[c] = clamp(400 * Math.min(openNb, 0.6) * wood);
+    L.mosaic[c] = clamp(400 * Math.min(openSq, 0.6) * wood);
     L.edge[c] = clamp(100 * edgeD[c] / E98);
     const de = mEdge[c]; L.edge_near[c] = clamp(100 * (400 - de) / 400);
     const dt = sBuilt[c] / nPix[c]; L.towns_far[c] = clamp(100 * Math.min(dt, 1000) / 1000);
@@ -233,8 +238,9 @@ const GBIF = 'https://api.gbif.org/v1/occurrence/search';
 const gbifBox = (bbox) => `${GBIF}?decimalLatitude=${bbox[1]},${bbox[3]}&decimalLongitude=${bbox[0]},${bbox[2]}&hasCoordinate=true&hasGeospatialIssue=false&coordinateUncertaintyInMeters=0,250&basisOfRecord=HUMAN_OBSERVATION&limit=300`;
 /** One GBIF page, with a timeout so a slow day at GBIF never freezes the app. */
 async function gbifPage(url) { const r = await fetch(url, { signal: AbortSignal.timeout(20000) }); if (!r.ok) throw new Error(`GBIF HTTP ${r.status}`); return r.json(); }
+export const SINCE_YEAR = 2017;   // only Sentinel-2-era records: the test compares like with like in time
 export async function fetchSightings(bbox, maxPages = 4) {
-  const base = gbifBox(bbox);
+  const base = `${gbifBox(bbox)}&year=${SINCE_YEAR},${new Date().getUTCFullYear()}`;
   const get = async (q) => { const out = []; for (let p = 0; p < maxPages; p++) { const j = await gbifPage(`${base}${q}&offset=${p * 300}`); out.push(...j.results.map(r => ({ lon: r.decimalLongitude, lat: r.decimalLatitude, year: r.year, sp: r.speciesKey, fam: r.familyKey, name: r.species }))); if (j.endOfRecords) break; } return out; };
   const [deer, boar, mammals] = await Promise.all([get(`&taxonKey=${GBIF_KEYS.deer}`), get(`&taxonKey=${GBIF_KEYS.boar}`), get(`&classKey=${GBIF_KEYS.mammals}`)]);
   const names = {}; for (const r of deer) if (r.name) names[r.name] = (names[r.name] || 0) + 1;
@@ -242,14 +248,17 @@ export async function fetchSightings(bbox, maxPages = 4) {
   return { deer, boar, deerNames, others: mammals.filter(r => r.fam !== GBIF_KEYS.deer && r.sp !== GBIF_KEYS.boar) };
 }
 
-/** A sample of records of ALL species (plants, birds, insects…) for the biodiversity check: up to pages × 300 records,
-    spread evenly through GBIF's result list so one prolific observer or survey does not fill the sample. */
-export async function fetchRichness(bbox, pages = 6) {
-  const base = gbifBox(bbox); const rows = (j) => j.results.filter(r => r.speciesKey).map(r => [+r.decimalLongitude.toFixed(5), +r.decimalLatitude.toFixed(5), r.speciesKey]);
-  const first = await gbifPage(`${base}&offset=0`); const total = Math.min(first.count || 0, 99000); const records = rows(first);
-  const offs = [...new Set(Array.from({ length: pages - 1 }, (_, i) => Math.floor(total * (i + 1) / pages / 300) * 300))].filter(o => o > 0);
-  for (let i = 0; i < offs.length; i += 2) { const js = await Promise.all(offs.slice(i, i + 2).map(o => gbifPage(`${base}&offset=${o}`).catch(() => null))); for (const j of js) if (j) records.push(...rows(j)); }
-  return { total: first.count || 0, records };
+/** A sample of records of ALL species (plants, birds, insects…) for the biodiversity check. The box is split into
+    tiles × tiles parts and the first 300 records of each are taken: deep result pages are very slow at GBIF, and tiles
+    spread the sample over the whole area. */
+export async function fetchRichness(bbox, tiles = 4) {
+  const [w, s, e, n] = bbox; const yrs = `&year=${SINCE_YEAR},${new Date().getUTCFullYear()}`; const records = []; let total = 0;
+  const boxes = []; for (let i = 0; i < tiles; i++) for (let j = 0; j < tiles; j++) boxes.push([w + (e - w) * i / tiles, s + (n - s) * j / tiles, w + (e - w) * (i + 1) / tiles, s + (n - s) * (j + 1) / tiles]);
+  for (let k = 0; k < boxes.length; k += 4) {
+    const js = await Promise.all(boxes.slice(k, k + 4).map(bb => gbifPage(`${gbifBox(bb)}${yrs}`).catch(() => null)));
+    for (const j of js) if (j) { total += j.count || 0; records.push(...j.results.filter(r => r.speciesKey).map(r => [+r.decimalLongitude.toFixed(5), +r.decimalLatitude.toFixed(5), r.speciesKey])); }
+  }
+  return { total, records };
 }
 
 export function packLayers(L, n) {

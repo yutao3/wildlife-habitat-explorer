@@ -31,6 +31,14 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 
 **v1.9 (Nov 2026).** No emoji or symbol characters anywhere in the interface: every icon is a drawn SVG line icon from one set (`assets/js/icons.js`, also inlined as a sprite at the top of `index.html`), the moon phase in Hunting mode is drawn to the real phase, and wind arrows are SVG. Type: Inter for text and Space Grotesk for titles and big numbers (Google Fonts). The bottom bar was tightened to fit between the panels.
 
+**v2.0 (18 Nov 2026), after the 17 Nov review with Yu Tao and Jan-Peter Muller.**
+- **Sharper scores:** open land, farmland and the field–forest mosaic are measured inside each square (pilot: 200 m; analysed areas: about 150 m) instead of over 600 m. Neighbouring squares now differ by 5.8 score points on average instead of 4.5 (+27%), and the 10th–90th percentile spread inside forests widened from 35 to 38 points.
+- **Recent sightings only:** every evidence check and the fit use GBIF records from 2017 on (the Sentinel-2 era). With the v1.1 indicators this gave exactly the same weights as all years, so the result does not hinge on old records.
+- **Refitted roe deer weights:** towns 25, roads 25, farmland 20, open land 10, woodland 5, green food 5, moisture 5, mosaic 5. Spatial cross-validation AUC (area under the ROC curve) 0.73 against other-mammal records (v1.1: 0.74), 155 sightings against 1,724 background records.
+- **No gap-filling:** cloudy pixels stay empty; each value comes from one dated Sentinel-2 scene.
+- Species records for the biodiversity check are fetched by tiles (deep result pages at GBIF were timing out). Cached analyses from earlier versions are ignored.
+- `docs/WildScope_indicators_and_pipeline.pdf` lists every indicator with its reference, the bands used, data sources and update frequency, and map licences.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |
