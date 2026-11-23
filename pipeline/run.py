@@ -26,7 +26,7 @@ def check(args):
     except Exception:
         pass
     du = shutil.disk_usage(HERE); print(f'Free disk here: {du.free / 1e9:.0f} GB')
-    for mod in ('numpy', 'scipy', 'rasterio', 'pystac_client', 'planetary_computer', 'pyproj', 'requests', 'PIL'):
+    for mod in ('numpy', 'scipy', 'rasterio', 'pystac_client', 'planetary_computer', 'pyproj', 'requests', 'PIL', 'osmium'):
         try:
             m = __import__(mod); print(f'  {mod:20s} {getattr(m, "__version__", "ok")}')
         except Exception as e:
@@ -37,7 +37,8 @@ def check(args):
     from wildscope import sources
     tests = [('Planetary Computer catalogue', 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'),
              ('Planetary Computer token', 'https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-2-l2a'),
-             ('GBIF', 'https://api.gbif.org/v1/occurrence/search?limit=1')]
+             ('GBIF', 'https://api.gbif.org/v1/occurrence/search?limit=1'),
+             ('Geofabrik (OpenStreetMap files)', 'https://download.geofabrik.de/index-v1-nogeom.json')]
     for name, url in tests:
         try:
             t = time.time(); r = requests.get(url, timeout=20, headers=sources.HEADERS); print(f'  {name:30s} HTTP {r.status_code} in {time.time() - t:.1f} s')
@@ -98,8 +99,14 @@ def run(args):
         log('  skipped (--osm-minutes 0): no roads; water from WorldCover only')
         osm = dict(roads=[], water=[], skipped=True); roads, water = None, np.zeros(wc.shape, bool)
     else:
+        if args.osm_source in ('auto', 'geofabrik'):
+            try:
+                sources.osm_from_geofabrik(g, HERE / 'cache', log=log)
+            except Exception as e:
+                log(f'  Geofabrik failed ({e}); trying the Overpass servers')
         try:
-            osm = sources.read_osm(g, HERE / 'cache', log=log, max_minutes=args.osm_minutes)
+            osm = sources.read_osm(g, HERE / 'cache', log=log, max_minutes=args.osm_minutes,
+                                   overpass=args.osm_source != 'geofabrik')
             roads, water = sources.rasterize_osm(osm, g)
             osm_gap = sources.osm_missing_mask(osm, g)
             if osm_gap is not None:
@@ -180,6 +187,8 @@ def main():
     r.add_argument('--out', default=str(HERE / 'runs'))
     r.add_argument('--web', action='store_true', help='also write a grid the website can open')
     r.add_argument('--web-cell', type=int, default=100, dest='web_cell')
+    r.add_argument('--osm-source', default='auto', choices=['auto', 'geofabrik', 'overpass'], dest='osm_source',
+                   help='auto (default): Geofabrik regional file first, Overpass servers for anything left; geofabrik; overpass')
     r.add_argument('--osm-minutes', type=float, default=20, dest='osm_minutes',
                    help='time limit for fetching OpenStreetMap (default 20); pieces not fetched are retried on the next run; 0 skips roads')
     a = ap.parse_args()

@@ -286,7 +286,7 @@ def _osm_piece(pc):
     return dict(roads=roads, water=water)
 
 
-def read_osm(g, cache_dir, max_age_days=30, log=print, max_fail_in_row=3, max_minutes=20):
+def read_osm(g, cache_dir, max_age_days=30, log=print, max_fail_in_row=3, max_minutes=20, overpass=True):
     """Roads and water as lines/rings in lon/lat, fetched in fixed 0.1° pieces, each cached on disk for 30 days.
     A piece that cannot be fetched is listed in 'missing' (its squares get no road or water value) and the run goes on.
     Running the same command again fetches only the missing pieces."""
@@ -300,7 +300,7 @@ def read_osm(g, cache_dir, max_age_days=30, log=print, max_fail_in_row=3, max_mi
         data = None
         if path.exists() and time.time() - path.stat().st_mtime < max_age_days * 86400:
             data = json.loads(gzip.decompress(path.read_bytes())); n_cache += 1
-        elif fails_in_row >= max_fail_in_row or time.time() - t0 > max_minutes * 60:
+        elif not overpass or fails_in_row >= max_fail_in_row or time.time() - t0 > max_minutes * 60:
             missing.append(pc); continue          # servers down or time budget used: do not wait on every remaining piece
         else:
             try:
@@ -323,6 +323,127 @@ def read_osm(g, cache_dir, max_age_days=30, log=print, max_fail_in_row=3, max_mi
         raise RuntimeError('no OpenStreetMap piece could be fetched')
     return dict(roads=list(roads.values()), water=list(water.values()), missing=missing, pieces=len(pieces),
                 fetched=datetime.now(timezone.utc).isoformat())
+
+
+# ---- OpenStreetMap from Geofabrik regional files (one download, no busy servers)
+GEOFABRIK_INDEX = 'https://download.geofabrik.de/index-v1.json'
+ROAD_TYPES = set(ROADS_RE.strip('^()$').split('|'))
+MAX_REGION_DEG2 = 30      # use states / small countries (Baden-Württemberg 7, Switzerland 9), never all of Germany or Europe
+
+
+def _in_poly(x, y, rings):
+    """Point-in-polygon (even-odd rule) for arrays of points against a list of rings (holes count as rings)."""
+    x = np.asarray(x, float)[:, None]; y = np.asarray(y, float)[:, None]
+    hits = np.zeros(x.shape[0], np.int64)
+    for ring in rings:
+        r = np.asarray(ring, float)
+        a, b, c, d = r[:-1, 0][None], r[:-1, 1][None], r[1:, 0][None], r[1:, 1][None]
+        dy = np.where(d == b, 1e-12, d - b)
+        hits += (((b > y) != (d > y)) & (x < (c - a) * (y - b) / dy + a)).sum(axis=1)
+    return hits % 2 == 1
+
+
+def _regions(cache_dir, log=print):
+    path = Path(cache_dir) / 'geofabrik' / 'index-v1.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or time.time() - path.stat().st_mtime > 30 * 86400:
+        r = requests.get(GEOFABRIK_INDEX, timeout=120, headers=HEADERS); r.raise_for_status(); path.write_bytes(r.content)
+    out = []
+    for f in json.loads(path.read_text())['features']:
+        pbf = f['properties'].get('urls', {}).get('pbf'); geom = f.get('geometry')
+        if not pbf or not geom:
+            continue
+        polys = geom['coordinates'] if geom['type'] == 'MultiPolygon' else [geom['coordinates']]
+        rings = [ring for poly in polys for ring in poly]
+        xs = [p[0] for r in rings for p in r]; ys = [p[1] for r in rings for p in r]
+        bb = (min(xs), min(ys), max(xs), max(ys)); area = (bb[2] - bb[0]) * (bb[3] - bb[1])
+        if area <= MAX_REGION_DEG2:
+            out.append(dict(id=f['properties']['id'], name=f['properties'].get('name', ''), pbf=pbf, rings=rings, bbox=bb, area=area))
+    return out
+
+
+def _sample(pc, n=5):
+    xs = np.linspace(pc[0], pc[2], n); ys = np.linspace(pc[1], pc[3], n)
+    X, Y = np.meshgrid(xs, ys); return X.ravel(), Y.ravel()
+
+
+def _download(url, path, log=print):
+    if path.exists() and time.time() - path.stat().st_mtime < 30 * 86400:
+        log(f'  {path.name} from cache ({path.stat().st_size / 1e6:.0f} MB)'); return path
+    tmp = path.with_suffix('.part'); t = time.time()
+    with requests.get(url, stream=True, timeout=120, headers=HEADERS) as r:
+        r.raise_for_status()
+        with open(tmp, 'wb') as f:
+            for chunk in r.iter_content(1 << 22):
+                f.write(chunk)
+    tmp.rename(path); log(f'  downloaded {path.name}: {path.stat().st_size / 1e6:.0f} MB in {time.time() - t:.0f} s')
+    return path
+
+
+def osm_from_geofabrik(g, cache_dir, max_age_days=30, log=print, regions=None):
+    """Fill the 0.1° OpenStreetMap piece cache from Geofabrik regional extracts (.osm.pbf, updated daily).
+    A piece is written only if the extracts used cover it completely; the others are left for Overpass."""
+    import osmium
+    pdir = Path(cache_dir) / 'osm_pieces'; pdir.mkdir(parents=True, exist_ok=True)
+    def fresh(pc):
+        p = pdir / f'osm_{pc[0]:.1f}_{pc[1]:.1f}.json.gz'
+        return p.exists() and time.time() - p.stat().st_mtime < max_age_days * 86400
+    need = [pc for pc in osm_pieces(g.lonlat_bounds()) if not fresh(pc)]
+    if not need:
+        log('  all OpenStreetMap pieces already in the cache'); return 0
+    regions = regions if regions is not None else _regions(cache_dir, log)
+    pts = [_sample(pc) for pc in need]
+    X = np.concatenate([p[0] for p in pts]); Y = np.concatenate([p[1] for p in pts])
+    best = np.full(len(X), -1); best_area = np.full(len(X), np.inf)
+    for k, r in enumerate(regions):        # smallest region holding each sample point
+        b = r['bbox']
+        if b[0] > X.max() or b[2] < X.min() or b[1] > Y.max() or b[3] < Y.min():
+            continue
+        inside = _in_poly(X, Y, r['rings']) & (r['area'] < best_area)
+        best[inside] = k; best_area[inside] = r['area']
+    chosen = {regions[k]['id']: regions[k] for k in set(best[best >= 0].tolist())}
+    if not chosen:
+        log('  no Geofabrik region found for this area'); return 0
+    log('  Geofabrik regions: ' + ', '.join(f"{r['name']} ({r['id']})" for r in chosen.values()))
+    ok = best >= 0                          # every sample point lies in one of the chosen extracts
+    covered = {pc: ok[i * 25:(i + 1) * 25] for i, pc in enumerate(need)}
+    full = [pc for pc in need if covered[pc].all()]
+    data = {pc: dict(roads={}, water={}) for pc in full}
+    if not full:
+        return 0
+    deg = OSM_PIECE_DEG
+    keyof = {(round(pc[0] / deg), round(pc[1] / deg)): pc for pc in full}
+    for r in chosen.values():
+        path = _download(r['pbf'], Path(cache_dir) / 'geofabrik' / f"{r['id'].replace('/', '_')}.osm.pbf", log)
+        t = time.time(); n = 0
+        fp = (osmium.FileProcessor(str(path)).with_locations()
+              .with_filter(osmium.filter.EntityFilter(osmium.osm.WAY))
+              .with_filter(osmium.filter.KeyFilter('highway', 'waterway', 'natural')))
+        for w in fp:
+            tg = w.tags
+            if tg.get('highway') in ROAD_TYPES:
+                kind = 'roads'
+            elif tg.get('waterway') in ('river', 'stream', 'canal') or tg.get('natural') == 'water':
+                kind = 'water'
+            else:
+                continue
+            try:
+                line = [[round(nd.lon, 6), round(nd.lat, 6)] for nd in w.nodes]
+            except Exception:              # a node outside the extract has no location
+                continue
+            if len(line) < 2:
+                continue
+            xs = [p[0] for p in line]; ys = [p[1] for p in line]
+            for i in range(math.floor(min(xs) / deg), math.floor(max(xs) / deg) + 1):
+                for j in range(math.floor(min(ys) / deg), math.floor(max(ys) / deg) + 1):
+                    pc = keyof.get((i, j))
+                    if pc is not None:
+                        data[pc][kind][str(w.id)] = line; n += 1
+        log(f"  read {r['id']}: {n:,} road and water lines in this window, {time.time() - t:.0f} s")
+    for pc, d in data.items():
+        (pdir / f'osm_{pc[0]:.1f}_{pc[1]:.1f}.json.gz').write_bytes(gzip.compress(json.dumps(d).encode()))
+    log(f'  {len(full)} of {len(need)} pieces filled from Geofabrik' + (f'; {len(need) - len(full)} left for Overpass' if len(full) < len(need) else ''))
+    return len(full)
 
 
 def osm_missing_mask(osm, g):

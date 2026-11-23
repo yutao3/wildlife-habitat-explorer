@@ -1,6 +1,7 @@
 """Offline checks of the two network-facing pieces that changed in v2.2 (no internet needed):
   1. two scenes of the same date (two satellite passes) are combined pixel by pixel, clear pixels first;
-  2. OpenStreetMap pieces: a failed piece is listed as missing, the run goes on, and a re-run fetches only what is missing.
+  2. OpenStreetMap pieces: a failed piece is listed as missing, the run goes on, and a re-run fetches only what is missing;
+  3. OpenStreetMap from Geofabrik regional files: pieces inside the regions are filled, pieces outside are left for Overpass.
 Run from the pipeline folder:  python tests/test_sources.py"""
 import sys, tempfile, types
 from datetime import datetime, timezone
@@ -73,4 +74,34 @@ with tempfile.TemporaryDirectory() as cache:
         sources.read_osm(g2, cache, log=lambda *a: None)
     except RuntimeError as e:
         print('all servers down:', e, '| requests made', len(calls)); assert len(calls) == 3
+
+# ---- Geofabrik regional files (synthetic .osm.pbf written with osmium)
+import osmium
+def pbf(path, ways):
+    w = osmium.SimpleWriter(str(path)); nid = 1; ids = []
+    for wid, tags, line in ways:
+        refs = []
+        for lon, lat in line:
+            w.add_node(osmium.osm.mutable.Node(id=nid, location=(lon, lat), tags={})); refs.append(nid); nid += 1
+        ids.append((wid, tags, refs))
+    for wid, tags, refs in ids:
+        w.add_way(osmium.osm.mutable.Way(id=wid, nodes=refs, tags=tags))
+    w.close(); return str(path)
+sources.time.sleep = lambda s: None
+with tempfile.TemporaryDirectory() as cache:
+    west = pbf(Path(cache) / 'west.osm.pbf', [(1, {'highway': 'primary'}, [(7.81, 47.95), (7.85, 47.97)]),
+                                              (2, {'waterway': 'river'}, [(7.82, 47.92), (7.83, 47.98)]),
+                                              (3, {'highway': 'footway'}, [(7.81, 47.95), (7.82, 47.96)]),     # not a road type we use
+                                              (4, {'building': 'yes'}, [(7.81, 47.95), (7.82, 47.96)])])
+    sq = lambda w, s, e, n: [[[w, s], [e, s], [e, n], [w, n], [w, s]]]
+    regions = [dict(id='test/west', name='West', pbf=west, rings=sq(7.65, 47.8, 7.95, 48.2), bbox=(7.65, 47.8, 7.95, 48.2), area=0.08),
+               dict(id='big', name='Big', pbf='never-downloaded', rings=sq(0, 40, 20, 60), bbox=(0, 40, 20, 60), area=400)]
+    sources._download = lambda url, path, log=print: Path(url)
+    g = sources.Grid(crs, tr10, 0, 0, 1000, 1000)          # lon ~7.79-7.93, lat ~47.93-48.03: six 0.1° pieces
+    n = sources.osm_from_geofabrik(g, cache, log=print, regions=regions[:1])
+    o = sources.read_osm(g, cache, log=print, overpass=False)
+    print('Geofabrik:', n, 'pieces filled,', len(o['missing']), 'left for Overpass,', len(o['roads']), 'road,', len(o['water']), 'water')
+    assert n == 4 and len(o['missing']) == 2 and len(o['roads']) == 1 and len(o['water']) == 1
+    # the smallest region wins: with a huge region also listed, only pieces inside 'West' are taken from 'West'
+    pts = sources._in_poly([7.75, 7.99], [48.0, 48.0], regions[0]['rings']); assert pts.tolist() == [True, False]
 print('PASS')
