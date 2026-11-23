@@ -12,7 +12,7 @@ a report and a grid the website can open.
 | 1 Find scene | Finds the Sentinel-2 tile for a point and the scene to use. `baseline`: clearest growing-season scene that covers the whole window (below 15% cloud, else 40%). `weekly`: newest scene of the last 7 days (14 if none) | Planetary Computer STAC catalogue |
 | 2 Read Sentinel-2 | Reads only the window from cloud-optimised GeoTIFFs: B04 and B08 (10 m), B11 and SCL (20 m, repeated to 10 m). Removes the +1000 offset ESA adds since processing baseline 04.00. Computes NDVI and NDMI | Sentinel-2 L2A |
 | 3 Read land cover | ESA WorldCover 2021 reprojected onto the tile's 10 m grid | Planetary Computer |
-| 4 Roads and water | OpenStreetMap roads, rivers and lakes in ~15 km pieces, cached on disk for 30 days, drawn 30 m wide | Overpass API |
+| 4 Roads and water | OpenStreetMap roads, rivers and lakes in fixed 0.1° pieces (about 7 × 11 km), each cached on disk for 30 days, drawn 30 m wide. A piece the servers do not return is left empty (road and water scores blank there) and fetched on the next run; time limit `--osm-minutes` (default 20, 0 skips roads) | Overpass API (4 mirrors) |
 | 5 Indicators | The 16 indicators per square, exactly as the website computes them (see `tests/test_parity.py`). Cloud mask: keep SCL 4, 5, 6. **No gap-filling**: cloudy pixels stay empty | — |
 | 6 Scores | Weighted averages, weights read from `../data/scores/grid.json` (same as the website) | — |
 | 7 Evidence | AUC (area under the ROC curve) of deer and wild boar sightings since 2017 against other-mammal sightings | GBIF API |
@@ -56,4 +56,10 @@ a full tile about 10–12 GB. Reading the images and GBIF usually takes longer t
 ```bash
 python tests/test_parity.py    # Python indicators = website indicators (needs node)
 python tests/test_offline.py   # whole pipeline on a synthetic tile, no internet
+python tests/test_sources.py   # same-date scene combining and OpenStreetMap pieces, no internet
 ```
+
+## v2.2 changes (after the first Harwell runs, 23 Nov 2026)
+
+- **Full tiles split between two orbits.** Tile 32UMU is imaged by two satellite passes (relative orbits R065 and R108) a few minutes apart. When no single scene covers the window, the scenes of the same tile from the same date are combined, a clear pixel taken first. Still one date per map, so not gap-filling. The report shows how much of the window has data.
+- **OpenStreetMap no longer all-or-nothing.** Before, one busy server (HTTP 504) threw away every piece already fetched and cost up to an hour of retries. Now each piece is cached, missing pieces are marked, stopping after 3 failures in a row or the time limit, and a re-run fetches only what is missing.

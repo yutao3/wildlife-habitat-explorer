@@ -107,8 +107,12 @@ def report_md(rep):
     lines = [f"# WildScope pipeline run: {rep['label']}", '',
              f"- Scene: {rep['scene']['id']} ({rep['scene']['date']}, {rep['scene']['cloud']:.1f}% cloud, processing baseline {rep['scene']['processing_baseline']})",
              f"- Area: {rep['area_km']} km × {rep['area_km']} km, {rep['cell_m']} m squares ({rep['stats']['squares']:,} squares), CRS {rep['crs']}",
+             f"- Window covered by the scene{'s' if rep['scene'].get('scenes', 1) > 1 else ''}: {100 * rep['scene'].get('window_with_data', 1):.1f}%"
+             + (f" ({rep['scene']['scenes']} scenes of the same date, two satellite passes)" if rep['scene'].get('scenes', 1) > 1 else ''),
              f"- Clear vegetation pixels (cloud mask SCL 4/5/6): {100 * rep['stats']['clear_pixel_share']:.1f}%. No gap-filling: cloudy pixels stay empty.",
-             f"- OpenStreetMap: {rep['osm']['roads']:,} roads, {rep['osm']['water']:,} water features",
+             f"- OpenStreetMap: {rep['osm']['roads']:,} roads, {rep['osm']['water']:,} water features"
+             + (f" ({rep['osm']['missing']} of {rep['osm']['pieces']} pieces missing: road and water scores empty there; run again to fill them in)" if rep['osm'].get('missing') else '')
+             + (f" ({rep['osm']['note']})" if rep['osm'].get('note') else ''),
              f"- GBIF since 2017: {rep['gbif']['deer']} deer, {rep['gbif']['boar']} wild boar, {rep['gbif']['others']} other mammals", '',
              '## Evidence (AUC = area under the ROC curve; 0.5 = chance, 1 = perfect)', '']
     for pid, r in ev.items():

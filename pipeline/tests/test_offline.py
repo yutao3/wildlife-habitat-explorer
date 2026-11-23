@@ -28,14 +28,16 @@ sources.catalog = lambda: None
 sources.find_tile = lambda cat, lat, lon: '32UMU'
 sources.pick_scene = lambda *a, **k: item
 sources.any_item = lambda cat, tile: item
+sources.same_day = lambda cat, tile, it, cover, log=print: [it]
 sources.make_grid = lambda it, extent, center, cell: sources.Grid(crs, tr, 0, 0, H, W)
-sources.read_s2 = lambda it, g, log=print: (ndvi, ndmi, scl, dict(offset=1000.0, processing_baseline=5.11))
+sources.read_s2 = lambda its, g, log=print: (ndvi, ndmi, scl, dict(offset=1000.0, processing_baseline=5.11))
 sources.read_worldcover = lambda cat, g, log=print: (wc, ['ESA_WorldCover_10m_2021_v200_TEST'])
-sources.read_osm = lambda g, cache, log=print: dict(roads=[[[7.85, 48.0], [7.95, 48.05]]], water=[])
+sources.read_osm = lambda g, cache, log=print, max_minutes=20: dict(roads=[[[7.85, 48.0], [7.95, 48.05]]], water=[], pieces=4,
+                                                                    missing=[(7.8, 47.9, 7.9, 48.0)])
 sources.rasterize_osm = lambda osm, g: (np.eye(H, W, dtype=bool) | np.eye(H, W, 1, dtype=bool), np.zeros((H, W), bool))
 sources.read_sightings = lambda g, log=print: dict(deer=pts(60), boar=pts(5), others=pts(300), mammals=[])
 with tempfile.TemporaryDirectory() as td:
-    args = types.SimpleNamespace(tile=None, lat=48.0, lon=7.85, extent='half', mode='baseline', cell=50, max_cloud=None, out=td, web=True, web_cell=100)
+    args = types.SimpleNamespace(tile=None, lat=48.0, lon=7.85, extent='half', mode='baseline', cell=50, max_cloud=None, out=td, web=True, web_cell=100, osm_minutes=20)
     assert runner.run(args) == 0
     out = next(Path(td).iterdir())
     files = sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file())

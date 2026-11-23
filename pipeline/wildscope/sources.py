@@ -21,8 +21,8 @@ from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
 STAC_URL = 'https://planetarycomputer.microsoft.com/api/stac/v1'
-OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
-            'https://maps.mail.ru/osm/tools/overpass/api/interpreter']
+OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter',
+            'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']
 GBIF = 'https://api.gbif.org/v1/occurrence/search'
 GBIF_KEYS = dict(deer=5298, boar=7705930, mammals=359)
 SINCE_YEAR = 2017
@@ -98,12 +98,46 @@ def pick_scene(cat, tile, mode, lat, max_cloud=None, log=print, cover=None):
                 it = min(full, key=lambda i: i.properties['eo:cloud_cover'])
                 log(f'  clearest scene {a}..{b}: {it.id} ({it.properties["eo:cloud_cover"]:.2f}% cloud)')
                 return it
+            day = _best_day(items, cover)
+            if day:                                # two passes on one date cover the window together
+                it = min(day, key=lambda i: i.properties['eo:cloud_cover'])
+                log(f'  clearest date {a}..{b}: {it.datetime.date()} (no single pass covers the window)')
+                return it
             if items and partial is None:
                 partial = min(items, key=lambda i: i.properties['eo:cloud_cover'])
     if partial is not None:
         log(f'  no clear scene covers the whole window; using {partial.id}, part of the window will be empty')
         return partial
     raise RuntimeError(f'no growing-season scene of tile {tile} below {max_cloud or 40}% cloud')
+
+
+def same_day(cat, tile, item, cover, log=print):
+    """A tile is often split between two satellite orbits. If the chosen scene does not cover the window, add the
+    other scenes of the SAME tile taken the SAME day (minutes apart): still one date, so this is not gap-filling."""
+    if cover is None or _covers(item, cover):
+        return [item]
+    day = item.datetime.date()
+    sib = [i for i in cat.search(collections=['sentinel-2-l2a'], datetime=f'{day}/{day}',
+                                 query={'s2:mgrs_tile': {'eq': tile}}).items() if i.id != item.id]
+    if sib:
+        log(f'  combining {1 + len(sib)} scenes of {day} (two satellite passes over the tile, same date): '
+            + ', '.join(i.id for i in [item] + sib))
+    return [item] + sib
+
+
+def _best_day(items, cover):
+    """Among partial scenes, the date whose scenes together cover the window, lowest cloud first."""
+    by = {}
+    for i in items:
+        by.setdefault(i.datetime.date(), []).append(i)
+    ok = []
+    for d, its in by.items():
+        b = (min(i.bbox[0] for i in its), min(i.bbox[1] for i in its), max(i.bbox[2] for i in its), max(i.bbox[3] for i in its))
+        if cover is None or (b[0] <= cover[0] and b[1] <= cover[1] and b[2] >= cover[2] and b[3] >= cover[3]):
+            ok.append((max(i.properties['eo:cloud_cover'] for i in its), d, its))
+    if not ok:
+        return None
+    return min(ok, key=lambda t: (t[0], -t[1].toordinal()))[2]
 
 
 # ---------------------------------------------------------------- window on the tile grid
@@ -142,27 +176,44 @@ def make_grid(item, extent, center=None, cell_m=50):
 
 
 # ---------------------------------------------------------------- reading Sentinel-2 and WorldCover
-def read_s2(item, g, log=print):
-    """B04, B08 at 10 m and B11, SCL at 20 m (repeated to 10 m) for the window. Returns NDVI, NDMI, SCL."""
-    base = float(item.properties.get('s2:processing_baseline', '0') or 0)
-    off = 1000.0 if base >= 4 else 0.0       # since baseline 04.00 (2022) ESA adds 1000 to every stored value
+def read_s2(items, g, log=print):
+    """B04, B08 at 10 m and B11, SCL at 20 m (repeated to 10 m) for the window. Returns NDVI, NDMI, SCL.
+    items: one scene, or several scenes of the same date (see same_day); a pixel is taken from the first scene that
+    has it clear (SCL 4, 5, 6), otherwise from the first scene that has any data."""
+    if not isinstance(items, (list, tuple)):
+        items = [items]
     w10 = Window(g.col0, g.row0, g.w, g.h); w20 = Window(g.col0 // 2, g.row0 // 2, g.w // 2, g.h // 2)
-    out = {}
+    merged = None; bases = []
     with rasterio.Env(**GDAL_ENV):
-        for band, win, fac in (('B04', w10, 1), ('B08', w10, 1), ('B11', w20, 2), ('SCL', w20, 2)):
-            t = time.time()
-            with rasterio.open(item.assets[band].href) as ds:
-                a = ds.read(1, window=win)
-            if fac > 1:
-                a = a.repeat(fac, axis=0).repeat(fac, axis=1)
-            out[band] = a
-            log(f'  read {band}: {a.shape[1]} x {a.shape[0]} px in {time.time() - t:.0f} s')
-    b4, b8, b11 = (np.where(out[k] == 0, np.nan, out[k].astype(np.float32) - off) for k in ('B04', 'B08', 'B11'))
+        for item in items:
+            base = float(item.properties.get('s2:processing_baseline', '0') or 0); bases.append(base)
+            off = 1000.0 if base >= 4 else 0.0       # since baseline 04.00 (2022) ESA adds 1000 to every stored value
+            out = {}
+            for band, win, fac in (('B04', w10, 1), ('B08', w10, 1), ('B11', w20, 2), ('SCL', w20, 2)):
+                t = time.time()
+                with rasterio.open(item.assets[band].href) as ds:
+                    a = ds.read(1, window=win)
+                if fac > 1:
+                    a = a.repeat(fac, axis=0).repeat(fac, axis=1)
+                out[band] = a if band == 'SCL' else np.where(a == 0, np.nan, a.astype(np.float32) - off).astype(np.float32)
+                log(f'  read {band}{" of " + item.id[:24] if len(items) > 1 else ""}: {a.shape[1]} x {a.shape[0]} px in {time.time() - t:.0f} s')
+            if merged is None:
+                merged = out
+            else:
+                clear_old = np.isin(merged['SCL'], (4, 5, 6)); clear_new = np.isin(out['SCL'], (4, 5, 6))
+                take = (merged['SCL'] == 0) & (out['SCL'] > 0) | (~clear_old & clear_new)
+                for k in merged:
+                    merged[k][take] = out[k][take]
+                log(f'  took {take.mean() * 100:.1f}% of the window from {item.id}')
+            del out
+    b4, b8, b11 = merged['B04'], merged['B08'], merged['B11']
     with np.errstate(divide='ignore', invalid='ignore'):
         ndvi = ((b8 - b4) / (b8 + b4)).astype(np.float32)
         ndmi = ((b8 - b11) / (b8 + b11)).astype(np.float32)
     ndvi[~np.isfinite(ndvi)] = np.nan; ndmi[~np.isfinite(ndmi)] = np.nan
-    return ndvi, ndmi, out['SCL'].astype(np.uint8), dict(offset=off, processing_baseline=base)
+    has = (merged['SCL'] > 0).mean()
+    return ndvi, ndmi, merged['SCL'].astype(np.uint8), dict(offset=1000.0 if bases[0] >= 4 else 0.0, processing_baseline=bases[0],
+                                                            scenes=len(items), window_with_data=round(float(has), 3))
 
 
 def read_worldcover(cat, g, log=print):
@@ -188,48 +239,104 @@ def read_worldcover(cat, g, log=print):
 
 
 # ---------------------------------------------------------------- OpenStreetMap
-def _overpass(query, timeout=180):
+OSM_PIECE_DEG = 0.1          # fixed 0.1° pieces: any run over the same place reuses the cached pieces
+ROADS_RE = ('^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|'
+            'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$')
+
+
+def _overpass(query, timeout=75, rounds=2):
+    """One Overpass request, tried on every mirror; busy servers (429/502/503/504) are retried after a pause."""
     last = None
-    for attempt in range(3):
+    for attempt in range(rounds):
         for url in OVERPASS:
             try:
                 r = requests.post(url, data={'data': query}, timeout=timeout, headers=HEADERS)
                 if r.ok:
                     return r.json()['elements']
-                last = f'HTTP {r.status_code}'
-            except Exception as e:   # busy server: try the next mirror
-                last = str(e)
-        time.sleep(10 * (attempt + 1))
+                last = f'HTTP {r.status_code} from {url.split("/")[2]}'
+            except Exception as e:   # busy or unreachable: try the next mirror
+                last = f'{type(e).__name__} from {url.split("/")[2]}'
+        if attempt < rounds - 1:
+            time.sleep(15 * (attempt + 1))
     raise RuntimeError(f'OpenStreetMap servers busy ({last})')
 
 
-def read_osm(g, cache_dir, max_age_days=30, log=print):
-    """Roads and water as lines/rings in lon/lat, fetched in pieces of about 15 km and cached on disk."""
+def osm_pieces(lb, deg=OSM_PIECE_DEG):
+    """The fixed lon/lat pieces that cover a box: (west, south, east, north), each deg × deg."""
+    i0, i1 = math.floor(lb[0] / deg), math.ceil(lb[2] / deg)
+    j0, j1 = math.floor(lb[1] / deg), math.ceil(lb[3] / deg)
+    return [(round(i * deg, 4), round(j * deg, 4), round((i + 1) * deg, 4), round((j + 1) * deg, 4))
+            for j in range(j0, j1) for i in range(i0, i1)]
+
+
+def _osm_piece(pc):
+    """Roads and water of one piece in ONE request; ids are kept so pieces can be merged without duplicates."""
+    bb = f'{pc[1]},{pc[0]},{pc[3]},{pc[2]}'
+    q = (f'[out:json][timeout:70];'
+         f'way["highway"~"{ROADS_RE}"]({bb})->.r;'
+         f'(way["waterway"~"^(river|stream|canal)$"]({bb});way["natural"="water"]({bb}););'
+         f'out tags geom qt;.r out tags geom qt;')
+    roads, water = {}, {}
+    for el in _overpass(q):
+        geom = el.get('geometry')
+        if not geom:
+            continue
+        line = [[round(p['lon'], 6), round(p['lat'], 6)] for p in geom]
+        (roads if 'highway' in el.get('tags', {}) else water)[str(el['id'])] = line
+    return dict(roads=roads, water=water)
+
+
+def read_osm(g, cache_dir, max_age_days=30, log=print, max_fail_in_row=3, max_minutes=20):
+    """Roads and water as lines/rings in lon/lat, fetched in fixed 0.1° pieces, each cached on disk for 30 days.
+    A piece that cannot be fetched is listed in 'missing' (its squares get no road or water value) and the run goes on.
+    Running the same command again fetches only the missing pieces."""
     lb = g.lonlat_bounds()
-    key = f'osm_{lb[0]:.3f}_{lb[1]:.3f}_{lb[2]:.3f}_{lb[3]:.3f}.json.gz'
-    path = Path(cache_dir) / key
-    if path.exists() and time.time() - path.stat().st_mtime < max_age_days * 86400:
-        log(f'  OpenStreetMap from cache ({path.name})')
-        return json.loads(gzip.decompress(path.read_bytes()))
-    n = max(1, math.ceil((g.w * g.tile_transform.a) / 15000))
-    roads, water = [], []
-    for i in range(n):
-        for j in range(n):
-            s = lb[1] + (lb[3] - lb[1]) * j / n; nn = lb[1] + (lb[3] - lb[1]) * (j + 1) / n
-            w = lb[0] + (lb[2] - lb[0]) * i / n; e = lb[0] + (lb[2] - lb[0]) * (i + 1) / n
-            bb = f'{s:.5f},{w:.5f},{nn:.5f},{e:.5f}'
-            rq = (f'[out:json][timeout:170];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|'
-                  f'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"]({bb});out geom;')
-            wq = f'[out:json][timeout:170];(way["waterway"~"^(river|stream|canal)$"]({bb});way["natural"="water"]({bb}););out geom;'
-            for q, sink in ((rq, roads), (wq, water)):
-                for el in _overpass(q):
-                    if el.get('geometry'):
-                        sink.append([[p['lon'], p['lat']] for p in el['geometry']])
-            log(f'  OpenStreetMap piece {i * n + j + 1}/{n * n}: {len(roads)} roads, {len(water)} water so far')
-            time.sleep(2)
-    data = dict(roads=roads, water=water, fetched=datetime.now(timezone.utc).isoformat())
-    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(gzip.compress(json.dumps(data).encode()))
-    return data
+    pdir = Path(cache_dir) / 'osm_pieces'; pdir.mkdir(parents=True, exist_ok=True)
+    pieces = osm_pieces(lb)
+    roads, water, missing = {}, {}, []
+    n_cache = fails_in_row = 0; t0 = time.time()
+    for k, pc in enumerate(pieces, 1):
+        path = pdir / f'osm_{pc[0]:.1f}_{pc[1]:.1f}.json.gz'
+        data = None
+        if path.exists() and time.time() - path.stat().st_mtime < max_age_days * 86400:
+            data = json.loads(gzip.decompress(path.read_bytes())); n_cache += 1
+        elif fails_in_row >= max_fail_in_row or time.time() - t0 > max_minutes * 60:
+            missing.append(pc); continue          # servers down or time budget used: do not wait on every remaining piece
+        else:
+            try:
+                data = _osm_piece(pc); fails_in_row = 0
+                path.write_bytes(gzip.compress(json.dumps(data).encode()))
+                time.sleep(1)
+            except Exception as e:
+                fails_in_row += 1; missing.append(pc)
+                log(f'  OpenStreetMap piece {k}/{len(pieces)} failed ({e})')
+                if fails_in_row == max_fail_in_row:
+                    log(f'  {max_fail_in_row} pieces failed in a row: skipping the rest; run again later to fill them in')
+                continue
+            if time.time() - t0 > max_minutes * 60 and k < len(pieces):
+                log(f'  OpenStreetMap time budget of {max_minutes} min used: skipping the rest; run again later to fill them in')
+        roads.update(data['roads']); water.update(data['water'])
+        if k % 10 == 0 or k == len(pieces):
+            log(f'  OpenStreetMap {k}/{len(pieces)} pieces ({n_cache} from cache, {len(missing)} missing): '
+                f'{len(roads)} roads, {len(water)} water, {time.time() - t0:.0f} s')
+    if missing and len(missing) == len(pieces):
+        raise RuntimeError('no OpenStreetMap piece could be fetched')
+    return dict(roads=list(roads.values()), water=list(water.values()), missing=missing, pieces=len(pieces),
+                fetched=datetime.now(timezone.utc).isoformat())
+
+
+def osm_missing_mask(osm, g):
+    """True on the 10 m grid where an OpenStreetMap piece is missing."""
+    if not osm.get('missing'):
+        return None
+    tf = Transformer.from_crs('EPSG:4326', g.crs, always_xy=True)
+    shapes = []
+    for w, s, e, n in osm['missing']:
+        lon = [w + (e - w) * t / 8 for t in range(9)] + [e] * 9 + [e - (e - w) * t / 8 for t in range(9)] + [w] * 9
+        lat = [s] * 9 + [s + (n - s) * t / 8 for t in range(9)] + [n] * 9 + [n - (n - s) * t / 8 for t in range(9)]
+        xs, ys = tf.transform(lon, lat)
+        shapes.append((dict(type='Polygon', coordinates=[list(zip(xs, ys)) + [(xs[0], ys[0])]]), 1))
+    return rasterize(shapes, out_shape=(g.h, g.w), transform=g.transform, all_touched=True, dtype=np.uint8).astype(bool)
 
 
 def rasterize_osm(osm, g, px_m=10):

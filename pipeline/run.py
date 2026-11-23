@@ -37,13 +37,24 @@ def check(args):
     from wildscope import sources
     tests = [('Planetary Computer catalogue', 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'),
              ('Planetary Computer token', 'https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-2-l2a'),
-             ('GBIF', 'https://api.gbif.org/v1/occurrence/search?limit=1'), ('OpenStreetMap Overpass', 'https://overpass-api.de/api/status')]
+             ('GBIF', 'https://api.gbif.org/v1/occurrence/search?limit=1')]
     for name, url in tests:
         try:
             t = time.time(); r = requests.get(url, timeout=20, headers=sources.HEADERS); print(f'  {name:30s} HTTP {r.status_code} in {time.time() - t:.1f} s')
             ok &= r.ok
         except Exception as e:
             ok = False; print(f'  {name:30s} FAILED ({e})')
+    ok_osm = False
+    for url in sources.OVERPASS:                  # the run tries every mirror, so one working mirror is enough
+        try:
+            t = time.time(); r = requests.post(url, data={'data': '[out:json][timeout:20];node(48.0,7.85,48.001,7.851);out ids;'},
+                                               timeout=30, headers=sources.HEADERS)
+            print(f'  {"OpenStreetMap " + url.split("/")[2]:30s} HTTP {r.status_code} in {time.time() - t:.1f} s')
+            ok_osm |= r.ok
+        except Exception as e:
+            print(f'  {"OpenStreetMap " + url.split("/")[2]:30s} FAILED ({type(e).__name__})')
+    if not ok_osm:
+        print('  No OpenStreetMap server answered: runs will go on without roads (try again later)')
     try:
         import rasterio
         from rasterio.windows import Window
@@ -73,24 +84,41 @@ def run(args):
     center = (args.lat, args.lon) if args.lat is not None and args.lon is not None else None
     g = sources.make_grid(sources.any_item(cat, tile), args.extent, center, args.cell)
     item = sources.pick_scene(cat, tile, args.mode, g.lonlat_bounds()[1], args.max_cloud, log, cover=g.lonlat_bounds())
+    items = sources.same_day(cat, tile, item, g.lonlat_bounds(), log)
     lb = g.lonlat_bounds(); km = round(g.w * g.tile_transform.a / 1000, 1)
     log(f'  tile {tile}, window {g.w} x {g.h} px = {km} x {km} km, lon {lb[0]:.3f}..{lb[2]:.3f}, lat {lb[1]:.3f}..{lb[3]:.3f}')
     step('1 find scene')
     log('2. Reading Sentinel-2 bands (only this window)')
-    ndvi, ndmi, scl, s2info = sources.read_s2(item, g, log); step('2 read Sentinel-2')
+    ndvi, ndmi, scl, s2info = sources.read_s2(items, g, log); step('2 read Sentinel-2')
     log('3. Reading ESA WorldCover 2021')
     wc, wc_ids = sources.read_worldcover(cat, g, log); step('3 read WorldCover')
     log('4. Roads and water from OpenStreetMap')
-    try:
-        osm = sources.read_osm(g, HERE / 'cache', log=log)
-        roads, water = sources.rasterize_osm(osm, g)
-    except Exception as e:
-        log(f'  OpenStreetMap failed ({e}); continuing without roads and rivers')
-        osm = dict(roads=[], water=[]); roads, water = None, np.zeros(wc.shape, bool)
+    osm_gap = None
+    if args.osm_minutes <= 0:
+        log('  skipped (--osm-minutes 0): no roads; water from WorldCover only')
+        osm = dict(roads=[], water=[], skipped=True); roads, water = None, np.zeros(wc.shape, bool)
+    else:
+        try:
+            osm = sources.read_osm(g, HERE / 'cache', log=log, max_minutes=args.osm_minutes)
+            roads, water = sources.rasterize_osm(osm, g)
+            osm_gap = sources.osm_missing_mask(osm, g)
+            if osm_gap is not None:
+                log(f"  {len(osm['missing'])} of {osm['pieces']} pieces missing ({osm_gap.mean() * 100:.0f}% of the window): "
+                    'road and water scores left empty there')
+        except Exception as e:
+            log(f'  OpenStreetMap failed ({e}); continuing without roads and rivers')
+            osm = dict(roads=[], water=[], failed=str(e)); roads, water = None, np.zeros(wc.shape, bool)
     step('4 OpenStreetMap')
     log(f'5. Indicators for every {args.cell} m square (cloud mask: SCL 4, 5, 6; no gap-filling)')
     L, norm, stats = indicators.compute(wc, ndvi, ndmi, scl, roads, water, cell_m=args.cell, px_m=10, log=log)
-    del ndvi, ndmi, scl; step('5 indicators')
+    del ndvi, ndmi, scl
+    if osm_gap is not None:                       # no OpenStreetMap there: do not pretend there are no roads or rivers
+        S_ = args.cell // 10
+        gap = osm_gap.reshape(osm_gap.shape[0] // S_, S_, osm_gap.shape[1] // S_, S_).any(axis=(1, 3))
+        for k in ('roads_far', 'raw_droad_only', 'water', 'raw_dwater'):
+            L[k][gap] = 255
+        stats['osm_missing_share'] = round(float(gap.mean()), 3)
+    step('5 indicators')
     log('6. Scores')
     P, pilot_meta = scoring.presets()
     S = {pid: scoring.score(L, p['weights']) for pid, p in P.items()}
@@ -118,14 +146,16 @@ def run(args):
     label = f'Sentinel-2 tile {tile}, {km} × {km} km, {date}'
     outputs.quicklook(out / 'quicklook.png', S, f'WildScope · {label}')
     rep = dict(label=label, tile=tile, mode=args.mode, extent=args.extent, area_km=km, cell_m=args.cell, crs=str(g.crs), lonlat_bounds=[round(v, 5) for v in lb],
-               scene=dict(id=item.id, date=date, cloud=float(item.properties['eo:cloud_cover']), **s2info), worldcover=wc_ids,
-               osm=dict(roads=len(osm['roads']), water=len(osm['water'])),
+               scene=dict(id=' + '.join(i.id for i in items), date=date, cloud=float(max(i.properties['eo:cloud_cover'] for i in items)), **s2info),
+               worldcover=wc_ids,
+               osm=dict(roads=len(osm['roads']), water=len(osm['water']), pieces=osm.get('pieces'), missing=len(osm.get('missing', [])),
+                        note='skipped' if osm.get('skipped') else osm.get('failed')),
                gbif={k: len(sight.get(k, [])) for k in ('deer', 'boar', 'others')}, evidence=ev, stats=stats, normalisation=norm,
                weights={pid: p['weights'] for pid, p in P.items()}, run_at=datetime.now(timezone.utc).isoformat(), machine=platform.node(),
                out_dir=str(out))
     if args.web:
         info = outputs.web_grid(out / 'web', L, g, args.cell, args.web_cell, pilot_meta,
-                                dict(machine=platform.node(), label=label, short=f'Tile {tile} · {date}', scene_date=date, scene=item.id,
+                                dict(machine=platform.node(), label=label, short=f'Tile {tile} · {date}', scene_date=date, scene=' + '.join(i.id for i in items),
                                      run_date=rep['run_at'], norm=norm), sight)
         rep['web'] = info; log(f"  website grid: {info['cols']} x {info['rows']} squares of {args.web_cell} m, {info['mb']} MB")
     step('8 outputs')
@@ -150,6 +180,8 @@ def main():
     r.add_argument('--out', default=str(HERE / 'runs'))
     r.add_argument('--web', action='store_true', help='also write a grid the website can open')
     r.add_argument('--web-cell', type=int, default=100, dest='web_cell')
+    r.add_argument('--osm-minutes', type=float, default=20, dest='osm_minutes',
+                   help='time limit for fetching OpenStreetMap (default 20); pieces not fetched are retried on the next run; 0 skips roads')
     a = ap.parse_args()
     if a.cmd == 'run' and not a.tile and (a.lat is None or a.lon is None):
         ap.error('give --tile, or --lat and --lon')
