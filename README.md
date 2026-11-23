@@ -39,6 +39,8 @@ A **static, GitHub Pages** web portal that maps **wildlife habitat**, **biodiver
 - Species records for the biodiversity check are fetched by tiles (deep result pages at GBIF were timing out). Cached analyses from earlier versions are ignored.
 - `docs/WildScope_indicators_and_pipeline.pdf` lists every indicator with its reference, the bands used, data sources and update frequency, and map licences.
 
+**v2.1 (23 Nov 2026): the processing pipeline.** `pipeline/` runs the same method on our own machine (Harwell) on a real Sentinel-2 tile: full (110 km), half (55 km) or quarter, in the tile's UTM projection, at 50 m squares, with no gap-filling. It writes float32 GeoTIFFs for QGIS, a quick-look, a report with timings and the AUC test, and with `--web` a grid the website opens via `?grid=<folder>`. `tests/test_parity.py` shows the Python indicators equal the website's (distance layers within a few points, because the pipeline uses exact distances). See `pipeline/README.md`.
+
 **Real data first.** By default the site shows only real, open data, and the live conditions update in real time:
 
 | Layer / panel | Source | Update | Licence / terms |

@@ -2,18 +2,18 @@
    Wires together: manifest (data/layers.json) → LayerManager → MapLibre globe → UI panels,
    plus the v1 score grid (data/scores/) combined live in the browser (scores.js).
    Three modes: Habitat, Biodiversity, Hunting. Static site: no backend, no tracking, no API keys. */
-import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261125a';
-import { loadManifest, allDates } from './js/manifest.js?v=20261125a';
-import { LayerManager } from './js/layers.js?v=20261125a';
-import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261125a';
-import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261125a';
-import { writeGeoTiff } from './js/geotiff.js?v=20261125a';
-import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261125a';
-import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261125a';
-import { createOrbit } from './js/orbit.js?v=20261125a';
-import { icon } from './js/icons.js?v=20261125a';
-import { initSearch, copernicusUrl } from './js/search.js?v=20261125a';
-import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261125a';
+import { ensureMapLibre, baseStyle, setBasemap, drawStarfield, applyProjection, createSpinner, flyToBounds, GLOBE_VIEW, globeZoomFor, BASEMAPS } from './js/globe.js?v=20261126a';
+import { loadManifest, allDates } from './js/manifest.js?v=20261126a';
+import { LayerManager } from './js/layers.js?v=20261126a';
+import { $, setText, el, formatDate, buildLayerPanel, refreshLayerPanel, renderFeature, clearFeature, rampColor, areaHa } from './js/ui.js?v=20261126a';
+import { ScoreGrid, histogramBars, rampGradient, scoreCSS, useRamp } from './js/scores.js?v=20261126a';
+import { writeGeoTiff } from './js/geotiff.js?v=20261126a';
+import { hasWebGL, ensureLeaflet, LiteMap, LitePopup, LiteMarker } from './js/litemap.js?v=20261126a';
+import { gridFor, fetchInputs, computeGrid, fetchSightings, fetchRichness, packLayers, LAYER_ORDER } from './js/analyse.js?v=20261126a';
+import { createOrbit } from './js/orbit.js?v=20261126a';
+import { icon } from './js/icons.js?v=20261126a';
+import { initSearch, copernicusUrl } from './js/search.js?v=20261126a';
+import { fetchConditions, renderConditions, compass, arrow } from './js/conditions.js?v=20261126a';
 
 const params = new URLSearchParams(location.search);
 const state = { map: null, mgr: null, manifest: null, spinner: null, projection: 'globe', basemap: 'satellite', popup: null, selected: null,
@@ -951,7 +951,9 @@ async function start() {
   attachControls();
   updateBasemap(state.basemap);
   const manifestP = loadManifest().catch((e) => { warn(`Cannot load data/layers.json: ${e.message}. Serve the folder over HTTP (not file://).`, true); return null; });
-  const gridP = ScoreGrid.load().catch((e) => { warn(`Score grid unavailable: ${e.message}`); return null; });
+  // ?grid=<folder> opens a grid written by the Harwell pipeline (run.py --web) instead of the pilot region
+  const gridParam = params.get('grid');
+  const gridP = ScoreGrid.load(gridParam ? new URL(gridParam.replace(/\/?$/, '/'), location.href) : undefined).catch((e) => { warn(`Score grid unavailable: ${e.message}`); return null; });
   let map;
   try {
     if (!hasWebGL() || params.has('lite')) throw new Error('WebGL unavailable');
